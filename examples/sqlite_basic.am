@@ -1,0 +1,29 @@
+package orm.example.sqlite_basic
+
+import orm
+import sqlite3
+from orm.sqlite3 import adapter as sqlite_adapter
+
+export main
+
+class User:
+  use orm.model:
+    expect_schema:
+      column(:id, type: :integer, primary_key: true, generated: true)
+      column(:email, type: :text, nullable: false)
+      column(:age, type: :integer, nullable: true, default: null)
+
+    validate:
+      expect(:email, email.present?, message: "must be present")
+      expect(:age, age.absent? or age >= 0, code: :gte, message: "must be greater than or equal to 0")
+
+def main():
+  sqlite3.memory |db|:
+    db.exec("create table users(id integer primary key, email text not null, age integer)")
+    User.bind!(sqlite_adapter(db)).or_raise
+    user = User.create({email: "ada@example.test", age: 36}).or_raise
+    user.set!(:email, "ada@amber.test")
+    user.save.or_raise
+    adults = User.where |query|:
+      query.field(:age) >= 18
+    adults.first.or_raise.get(:email)

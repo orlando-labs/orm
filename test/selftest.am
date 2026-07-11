@@ -1,0 +1,182 @@
+package orm.selftest
+
+import orm
+import sqlite3
+from orm.sqlite3 import adapter as sqlite_adapter
+
+export main
+
+EXPECTED = 26
+
+def check(score, cond):
+  if cond:
+    score + 1
+  else:
+    score
+
+def signup_validations():
+  orm.validate:
+    expect(:email, email.present?, message: "must be present")
+    expect(:password, password.present?, message: "must be present")
+    expect(:password, 12 <= password.length <= 128, code: :length, message: "length must be between 12 and 128")
+
+def signup_schema():
+  orm.schema:
+    attribute(:email, type: :text)
+    attribute(:password, type: :text)
+
+def signup_model():
+  orm.tableless(name: :SignupForm,
+    schema: signup_schema(),
+    validations: signup_validations().validations)
+
+def user_validations():
+  orm.validate:
+    expect(:email, email.present?, message: "must be present")
+    expect(:age, age.absent? or age >= 0, code: :gte, message: "must be greater than or equal to 0")
+
+def user_model():
+  orm.model(name: :User,
+    table: :users,
+    expected_schema: orm.ExpectedSchema([
+      orm.column(:id, type: :integer, primary_key: true, generated: true, db_type: "INTEGER"),
+      orm.column(:email, type: :text, nullable: false, db_type: "TEXT"),
+      orm.column(:age, type: :integer, nullable: true, default: null, db_type: "INTEGER")
+    ]),
+    validations: user_validations().validations)
+
+def mismatched_user_model():
+  orm.model(name: :User,
+    table: :users,
+    expected_schema: orm.ExpectedSchema([
+      orm.column(:id, type: :integer, primary_key: true, generated: true),
+      orm.column(:email, type: :text),
+      orm.column(:missing, type: :text)
+    ]))
+
+class MacroSignup:
+  use orm.tableless:
+    schema:
+      attribute(:email, type: :text)
+      attribute(:password, type: :text)
+    validate:
+      expect(:email, email.present?, message: "must be present")
+      expect(:password, password.length >= 12, code: :length, message: "length must be at least 12")
+
+class MacroUser:
+  use orm.model(table: :macro_users):
+    expect_schema:
+      column(:id, type: :integer, primary_key: true, generated: true, db_type: "INTEGER")
+      column(:email, type: :text, nullable: false, db_type: "TEXT")
+      column(:age, type: :integer, nullable: true, default: null, db_type: "INTEGER")
+    validate:
+      expect(:email, email.present?, message: "must be present")
+      expect(:age, age.absent? or age >= 0, code: :gte, message: "must be greater than or equal to 0")
+
+class InferredUser:
+  use orm.model(table: :users)
+
+class AuditLog:
+  use orm.model
+
+class LooseSignup:
+  use orm.tableless:
+    attribute(:email, type: :text)
+
+def main():
+  score = 0
+
+  caught_orm_error = false
+  try:
+    raise orm.SchemaError("schema failed")
+  rescue Exception |e|:
+    caught_orm_error = orm.OrmError === e
+  score = check(score, caught_orm_error)
+
+  loose_schema_rejected = false
+  try:
+    LooseSignup.model
+  rescue Exception |e|:
+    loose_schema_rejected = orm.OrmError === e and e.message.contains?("inside schema")
+  score = check(score, loose_schema_rejected)
+
+  Defaults = orm.tableless(:Defaults,
+    schema: orm.AttributeSchema([orm.attribute(:value, default: "fallback")]))
+  defaulted = Defaults()
+  explicit_null = Defaults({value: null})
+  score = check(score, defaulted.get(:value) == "fallback" and explicit_null.get(:value).absent?)
+  score = check(score, AuditLog.model.table == "audit_logs")
+
+  Signup = signup_model()
+  invalid_form = Signup({email: "", password: "short"})
+  invalid_result = invalid_form.save
+  invalid_errors = invalid_result.error.errors
+  grouped_errors = invalid_errors.to_map
+  score = check(score, invalid_result.err? and invalid_errors.count == 2 and grouped_errors[:email].count == 1 and grouped_errors[:password].count == 1)
+
+  macro_invalid = MacroSignup({email: "", password: "short"}).save
+  score = check(score, macro_invalid.err? and macro_invalid.error.errors.count == 2)
+  macro_signup = MacroSignup.create({email: "ada@example.test", password: "correct horse"}).or_raise
+  score = check(score, macro_signup.persisted? and macro_signup.changed? == false)
+
+  form = Signup({email: "ada@example.test", password: "correct horse"})
+  score = check(score, form.changed? == false and form.persisted? == false)
+  form.set!(:email, "ada@amber.test")
+  score = check(score, form.changed? and form.changes[:email][:after] == "ada@amber.test")
+  saved_form = form.save.or_raise
+  score = check(score, saved_form.persisted? and saved_form.changed? == false)
+
+  sqlite3.memory |db|:
+    db.exec("create table users(id integer primary key, email text not null, age integer)")
+    db.exec("create table macro_users(id integer primary key, email text not null, age integer)")
+
+    User = user_model()
+    score = check(score, User.bind!(sqlite_adapter(db)).ok?)
+
+    score = check(score, InferredUser.bind!(sqlite_adapter(db)).ok? and InferredUser.model.columns.count == 3)
+
+    mismatch = mismatched_user_model().bind!(sqlite_adapter(db))
+    score = check(score, mismatch.err? and mismatch.error.diff.missing.contains?(:missing))
+
+    invalid = User({email: "", age: null}).save
+    score = check(score, invalid.err? and invalid.error.errors.on(:email).count == 1)
+
+    user = User.create({email: "ada@example.test", age: 36}).or_raise
+    score = check(score, user.persisted? and user.get(:id).present? and user.changed? == false)
+    score = check(score, db.scalar("select count(*) from users") == 1)
+
+    adults = User.where |query|:
+      query.field(:age) >= 18
+    adult_rows = adults.all.or_raise
+    score = check(score, adult_rows.count == 1 and adult_rows[0].get(:email) == "ada@example.test")
+
+    selected = User.where |query|:
+      query.field(:age) >= 30
+      $_.and_where(query.field(:email) == "ada@example.test")
+    score = check(score, selected.first.or_raise.get(:id) == user.get(:id))
+
+    chained = User.where({email: "ada@example.test"})
+    chained = chained.where |query|:
+      query.field(:age).one_of([35, 36])
+    score = check(score, chained.all.or_raise.count == 1)
+
+    user.set!(:email, "ada@amber.test")
+    score = check(score, user.changed? and user.changes[:email][:after] == "ada@amber.test")
+    user.save.or_raise
+    score = check(score, db.get(:users, where: {id: user.get(:id)})[:email] == "ada@amber.test")
+
+    found = User.find(user.get(:id)).or_raise
+    score = check(score, found.get(:email) == "ada@amber.test" and found.persisted?)
+
+    found.delete.or_raise
+    score = check(score, db.scalar("select count(*) from users") == 0 and found.persisted? == false)
+
+    score = check(score, MacroUser.bind!(sqlite_adapter(db)).ok?)
+    macro_user = MacroUser.create({email: "macro@example.test", age: 5}).or_raise
+    score = check(score, macro_user.persisted? and macro_user.get(:id).present?)
+    macro_user.set!(:age, 6)
+    MacroUser.model.get(where: {id: macro_user.get(:id)}).or_raise
+    macro_user.save.or_raise
+    score = check(score, db.get(:macro_users, where: {id: macro_user.get(:id)})[:age] == 6)
+
+  score

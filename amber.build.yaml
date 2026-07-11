@@ -1,0 +1,12 @@
+schema: amber.build.v1
+name: orm
+root: orm
+
+profiles:
+  required: [core.v1, macro.v1]
+  optional: []
+  forbidden: []
+
+modules:
+  - name: orm
+    path: src/orm.am
