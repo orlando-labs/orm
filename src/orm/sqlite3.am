@@ -5,13 +5,15 @@ import sqlite3
 
 export adapter, SqliteAdapter
 
-def adapter(db):
-  SqliteAdapter(db)
+def adapter(db, instrumentation: null):
+  SqliteAdapter(db, instrumentation: instrumentation)
 
 class SqliteAdapter:
   attr db
 
-  def init(@db)
+  def init(@db, instrumentation: null):
+    if instrumentation:
+      @db.instrument_queries!(instrumentation)
 
   def bind(model):
     return Ok(model) if model.config.tableless?
@@ -35,7 +37,7 @@ class SqliteAdapter:
     pk = record.config.primary_key
     unless pk:
       return Err(orm.PersistenceError("delete requires a primary key column"))
-    id = record.get(pk.name)
+    id = record[pk.name]
     if id.absent?:
       return Err(orm.PersistenceError("delete requires a present primary key value"))
     where = {}
@@ -80,7 +82,7 @@ class SqliteAdapter:
     cols = []
     row = {}
     record.config.columns.each |column|:
-      value = record.get(column.name)
+      value = record[column.name]
       include_column = true
       if column.primary_key? and column.generated? and value.absent?:
         include_column = false
@@ -90,8 +92,8 @@ class SqliteAdapter:
     try:
       result = @db.insert(record.config.table, columns: cols, values: [row])
       pk = record.config.primary_key
-      if pk and pk.generated? and record.get(pk.name).absent?:
-        record.set!(pk.name, result[:last_insert_id])
+      if pk and pk.generated? and record[pk.name].absent?:
+        record[pk.name] = result[:last_insert_id]
       record.mark_persisted!()
       Ok(record)
     rescue |e|:
@@ -101,7 +103,7 @@ class SqliteAdapter:
     pk = record.config.primary_key
     unless pk:
       return Err(orm.PersistenceError("update requires a primary key column"))
-    id = record.get(pk.name)
+    id = record[pk.name]
     if id.absent?:
       return Err(orm.PersistenceError("update requires a present primary key value"))
     set = {}

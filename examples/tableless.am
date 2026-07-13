@@ -15,6 +15,6 @@ class SignupForm:
       expect(:password, password.length >= 12, code: :length, message: "length must be at least 12")
 
 def main():
-  form = SignupForm.new({email: "ada@example.test", password: "correct horse"})
+  form = SignupForm(email: "ada@example.test", password: "correct horse")
   form.save.or_raise
   form.persisted?

@@ -2,11 +2,36 @@ package orm.selftest
 
 import orm
 import sqlite3
+import task
 from orm.sqlite3 import adapter as sqlite_adapter
+from sync import Mutex
 
 export main
 
-EXPECTED = 26
+EXPECTED = 29
+
+class InstrumentationProbe:
+  def init():
+    @mutex = Mutex.new()
+    @started = 0
+    @finished = 0
+    @succeeded = 0
+    @failed = 0
+  def started(event):
+    @mutex.synchronize:
+      @started += 1
+    event
+  def finished(event):
+    @mutex.synchronize:
+      @finished += 1
+      if event.status == :success:
+        @succeeded += 1
+      elif event.status == :error:
+        @failed += 1
+    event
+  def snapshot():
+    @mutex.synchronize:
+      {started: @started, finished: @finished, succeeded: @succeeded, failed: @failed}
 
 def check(score, cond):
   if cond:
@@ -86,6 +111,22 @@ class LooseSignup:
 def main():
   score = 0
 
+  query_output = io.Buffer.new()
+  query_logger = orm.QueryLogger(to: query_output, dynamic: true, leave: true, refresh: 0.01, color: false)
+  parallel_queries = orm.Instrumentation([query_logger])
+  first_query = task.spawn:
+    parallel_queries.instrument(sqlite3.SqlExecution(:query, "SELECT first", [])):
+      task.sleep(0.03)
+      1
+  second_query = task.spawn:
+    parallel_queries.instrument(sqlite3.SqlExecution(:query, "UPDATE second", [])):
+      task.sleep(0.03)
+      2
+  first_query.wait()
+  second_query.wait()
+  rendered_queries = query_output.to_str
+  score = check(score, rendered_queries.contains?("SELECT first") and rendered_queries.contains?("UPDATE second") and rendered_queries.contains?("[v]") and rendered_queries.contains?("\u{1b}[2K"))
+
   caught_orm_error = false
   try:
     raise orm.SchemaError("schema failed")
@@ -103,25 +144,27 @@ def main():
   Defaults = orm.tableless(:Defaults,
     schema: orm.AttributeSchema([orm.attribute(:value, default: "fallback")]))
   defaulted = Defaults()
-  explicit_null = Defaults({value: null})
-  score = check(score, defaulted.get(:value) == "fallback" and explicit_null.get(:value).absent?)
+  explicit_null = Defaults(value: null)
+  score = check(score, defaulted[:value] == "fallback" and explicit_null[:value].absent?)
   score = check(score, AuditLog.model.table == "audit_logs")
 
   Signup = signup_model()
-  invalid_form = Signup({email: "", password: "short"})
+  invalid_form = Signup(email: "", password: "short")
   invalid_result = invalid_form.save
   invalid_errors = invalid_result.error.errors
   grouped_errors = invalid_errors.to_map
   score = check(score, invalid_result.err? and invalid_errors.count == 2 and grouped_errors[:email].count == 1 and grouped_errors[:password].count == 1)
 
-  macro_invalid = MacroSignup({email: "", password: "short"}).save
+  macro_invalid = MacroSignup(email: "", password: "short").save
   score = check(score, macro_invalid.err? and macro_invalid.error.errors.count == 2)
-  macro_signup = MacroSignup.create({email: "ada@example.test", password: "correct horse"}).or_raise
-  score = check(score, macro_signup.persisted? and macro_signup.changed? == false)
+  macro_signup = MacroSignup.create(email: "ada@example.test", password: "correct horse").or_raise
+  score = check(score, MacroSignup === macro_signup and macro_signup.persisted? and macro_signup.changed? == false)
 
   form = Signup({email: "ada@example.test", password: "correct horse"})
-  score = check(score, form.changed? == false and form.persisted? == false)
-  form.set!(:email, "ada@amber.test")
+  snapshot = form.attributes
+  snapshot[:email] = "detached@example.test"
+  score = check(score, form.changed? == false and form.persisted? == false and form[:email] == "ada@example.test")
+  form[:email] = "ada@amber.test"
   score = check(score, form.changed? and form.changes[:email][:after] == "ada@amber.test")
   saved_form = form.save.or_raise
   score = check(score, saved_form.persisted? and saved_form.changed? == false)
@@ -131,7 +174,9 @@ def main():
     db.exec("create table macro_users(id integer primary key, email text not null, age integer)")
 
     User = user_model()
-    score = check(score, User.bind!(sqlite_adapter(db)).ok?)
+    instrumentation_probe = InstrumentationProbe()
+    db_instrumentation = orm.Instrumentation([instrumentation_probe])
+    score = check(score, User.bind!(sqlite_adapter(db, instrumentation: db_instrumentation)).ok?)
 
     score = check(score, InferredUser.bind!(sqlite_adapter(db)).ok? and InferredUser.model.columns.count == 3)
 
@@ -141,42 +186,52 @@ def main():
     invalid = User({email: "", age: null}).save
     score = check(score, invalid.err? and invalid.error.errors.on(:email).count == 1)
 
-    user = User.create({email: "ada@example.test", age: 36}).or_raise
-    score = check(score, user.persisted? and user.get(:id).present? and user.changed? == false)
+    user = User.create(email: "ada@example.test", age: 36).or_raise
+    score = check(score, user.persisted? and user[:id].present? and user.changed? == false)
     score = check(score, db.scalar("select count(*) from users") == 1)
 
     adults = User.where |query|:
       query.field(:age) >= 18
     adult_rows = adults.all.or_raise
-    score = check(score, adult_rows.count == 1 and adult_rows[0].get(:email) == "ada@example.test")
+    score = check(score, adult_rows.count == 1 and adult_rows[0][:email] == "ada@example.test")
 
     selected = User.where |query|:
       query.field(:age) >= 30
       $_.and_where(query.field(:email) == "ada@example.test")
-    score = check(score, selected.first.or_raise.get(:id) == user.get(:id))
+    score = check(score, selected.first.or_raise[:id] == user[:id])
 
     chained = User.where({email: "ada@example.test"})
     chained = chained.where |query|:
       query.field(:age).one_of([35, 36])
     score = check(score, chained.all.or_raise.count == 1)
 
-    user.set!(:email, "ada@amber.test")
+    user[:email] = "ada@amber.test"
     score = check(score, user.changed? and user.changes[:email][:after] == "ada@amber.test")
     user.save.or_raise
-    score = check(score, db.get(:users, where: {id: user.get(:id)})[:email] == "ada@amber.test")
+    score = check(score, db.get(:users, where: {id: user[:id]})[:email] == "ada@amber.test")
 
-    found = User.find(user.get(:id)).or_raise
-    score = check(score, found.get(:email) == "ada@amber.test" and found.persisted?)
+    found = User.find(user[:id]).or_raise
+    score = check(score, found[:email] == "ada@amber.test" and found.persisted?)
 
     found.delete.or_raise
     score = check(score, db.scalar("select count(*) from users") == 0 and found.persisted? == false)
 
     score = check(score, MacroUser.bind!(sqlite_adapter(db)).ok?)
-    macro_user = MacroUser.create({email: "macro@example.test", age: 5}).or_raise
-    score = check(score, macro_user.persisted? and macro_user.get(:id).present?)
-    macro_user.set!(:age, 6)
-    MacroUser.model.get(where: {id: macro_user.get(:id)}).or_raise
+    macro_user = MacroUser.create(email: "macro@example.test", age: 5).or_raise
+    score = check(score, MacroUser === macro_user and macro_user.persisted? and macro_user[:id].present?)
+    macro_user[:age] = 6
+    reloaded_macro_user = MacroUser.get(where: {id: macro_user[:id]}).or_raise
     macro_user.save.or_raise
-    score = check(score, db.get(:macro_users, where: {id: macro_user.get(:id)})[:age] == 6)
+    score = check(score, MacroUser === reloaded_macro_user and db.get(:macro_users, where: {id: macro_user[:id]})[:age] == 6)
+
+    query_failed = false
+    try:
+      db.query("select * from table_that_does_not_exist")
+    rescue Sqlite3.Error |error|:
+      query_failed = true
+    score = check(score, query_failed)
+
+    instrumentation_counts = instrumentation_probe.snapshot
+    score = check(score, instrumentation_counts[:started] == instrumentation_counts[:finished] and instrumentation_counts[:succeeded] > 0 and instrumentation_counts[:failed] == 1)
 
   score

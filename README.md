@@ -10,6 +10,7 @@ This first implementation provides the runtime layers from the design:
 - `Result`-returning `save`, `find`, `get`, and `delete`;
 - tableless models;
 - SQLite execution through `sqlite3-amber`;
+- execution instrumentation and an opt-in live query logger;
 - model/tableless macros for class-local declarations.
 
 Macro-backed models use Amber's `use` injection macro surface. Amber's parser
@@ -26,6 +27,8 @@ class User:
       expect(:age, age.absent? or age >= 0,
         code: :gte,
         message: "must be greater than or equal to 0")
+
+user = User(email: "ada@example.test", age: 36)
 ```
 
 `expect_schema:` is optional. Without it, the model adopts the table schema
@@ -50,9 +53,9 @@ attribute declaration is rejected when the model descriptor is initialized,
 so schema and validation declarations stay grouped.
 
 These DSL blocks are executable macro blocks: `model`, `expect_schema`,
-`tableless`, `schema`, and `validate` invoke their declared `&blk`, while their nested
-macros emit ordinary quoted descriptor code. The package does not parse Amber's
-raw postfix/block AST shapes.
+`tableless`, `schema`, and `validate` invoke their declared `&blk`, while their
+nested macros emit ordinary quoted descriptor code. The package does not parse
+Amber's raw postfix/block AST shapes.
 
 The public macros have exact call shapes rather than `*args` / `**opts`
 catch-alls. Factory `model` accepts an optional positional name plus `name:`,
@@ -70,6 +73,11 @@ Macro parameters are typed as `Ast` because function-like Amber macros receive
 unevaluated syntax. The generated runtime table value is still a `Str` or
 `Symbol`; calling the macro does not pretend `table: :users` is already a
 runtime string during expansion.
+
+Macro-backed constructors, `new`, `create`, `find`, `get`, and query hydration
+all return an instance of the declared model class. Constructors and create
+methods accept either an attribute map or keyword attributes. Dynamic factory
+models keep the same API and return `orm.Record` instances.
 
 The factory shape is still available and is what the macros generate:
 
@@ -108,6 +116,48 @@ quoted identifiers and bound parameters rather than interpolated values.
 
 `save` returns `Ok(record)` or `Err(orm.ValidationError /
 orm.PersistenceError)`. Use `.or_raise` when escalation is wanted.
+
+Records use ordinary index access for dynamic attributes:
+
+```amber
+form[:email]
+form[:email] = "ada@example.test"
+```
+
+SQLite execution can be wrapped independently of logging. An instrumenter
+receives a `sqlite3.SqlExecution`, calls the real execution block, and notifies
+its subscribers with one `orm.ExecutionEvent`:
+
+```amber
+instrumentation = orm.Instrumentation([tracer])
+User.bind!(sqlite_adapter(db, instrumentation: instrumentation))
+```
+
+Subscribers implement `started(event)` and `finished(event)`. This is the same
+surface used by the query logger, so an OpenTelemetry subscriber can create and
+finish spans without changing the adapter:
+
+```amber
+logger = orm.QueryLogger(
+  dynamic: true,
+  leave: true,
+  refresh: 0.08,
+  color: :auto)
+
+instrumentation = orm.Instrumentation([logger])
+User.bind!(sqlite_adapter(db, instrumentation: instrumentation))
+```
+
+`dynamic: true` is the explicit opt-in for cursor-updating output. The logger
+writes a record before execution, refreshes elapsed wall time on a no-GIL
+spawned task, keeps parallel queries on separate terminal rows, and finalizes
+each row with `v` or `x`. With `leave: false`, the completed batch is erased.
+
+Attribute and dirty-state snapshots use shallow `Map#copy`. Mutating a nested
+value in place is not tracked; assign a replacement through
+`record[:name] = value` or `assign!`
+to make that change observable. The ORM does not deep-copy user instances or
+opaque resources merely to take a snapshot.
 
 ORM failure objects are ordinary Amber classes under `Exception`, allowing
 structured payloads such as `ValidationError#errors` and
