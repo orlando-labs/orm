@@ -24,14 +24,14 @@ class SqliteAdapter:
     if instrumentation:
       @db.instrument_queries!(instrumentation)
 
-  def transaction(mode: :deferred, &blk):
+  def transaction(mode as Symbol: :deferred, &blk):
     raise ArgumentError("transaction requires a block") unless blk
     try:
       @db.transaction(mode: mode) |_transaction|:
         result = blk()
         rollback = false
         try:
-          rollback = result.err?()
+          rollback = result.err?
         rescue NoMethodError |error|:
           rollback = false
         if rollback:
@@ -69,8 +69,8 @@ class SqliteAdapter:
     where[pk.name] = id
     try:
       @db.delete(record.config.table, where: where)
-      record.mark_new!()
-      record.clear_changes!()
+      record.mark_new!
+      record.clear_changes!
       Ok(record)
     rescue |e|:
       Err(_persistence_error(e))
@@ -119,7 +119,7 @@ class SqliteAdapter:
       pk = record.config.primary_key
       if pk and pk.generated? and record[pk.name].absent?:
         record[pk.name] = result[:last_insert_id]
-      record.mark_persisted!()
+      record.mark_persisted!
       Ok(record)
     rescue |e|:
       Err(_persistence_error(e))
@@ -136,13 +136,13 @@ class SqliteAdapter:
       if name != pk.name:
         set[name] = change[:after]
     if set.count == 0:
-      record.clear_changes!()
+      record.clear_changes!
       return Ok(record)
     where = {}
     where[pk.name] = id
     try:
       @db.update(record.config.table, set: set, where: where)
-      record.clear_changes!()
+      record.clear_changes!
       Ok(record)
     rescue |e|:
       Err(_persistence_error(e))
@@ -297,5 +297,5 @@ def _sqlite_where_operator(operator):
 
 def _record_from_row(model, row):
   record = model.new(row)
-  record.mark_persisted!()
+  record.mark_persisted!
   record

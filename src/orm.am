@@ -120,8 +120,8 @@ class QueryLogger:
   attr leave? from @leave
   attr dynamic? from @dynamic
 
-  def init(@to: io.stderr(), @dynamic: false, @leave: true, @refresh: 0.08, @color: :auto):
-    @mutex = Mutex.new()
+  def init(@to: io.stderr, @dynamic: false, @leave: true, @refresh: 0.08, @color: :auto):
+    @mutex = Mutex.new
     @entries = []
     @rendered_lines = 0
     @refresh_task = null
@@ -141,31 +141,31 @@ class QueryLogger:
     return event unless @dynamic
     @mutex.synchronize:
       @entries.push!(event)
-      _render_locked!()
+      self._render_locked!
       unless @refreshing:
         @refreshing = true
         @refresh_task = task.spawn:
-          self._refresh_loop()
+          self._refresh_loop
     event
 
   def finished(event):
     unless @dynamic:
       @mutex.synchronize:
         @to.write_line(_line(event))
-        @to.flush()
+        @to.flush
       return event
     @mutex.synchronize:
-      _render_locked!()
+      self._render_locked!
       active = @entries.any? |entry|: entry.running?
       unless active:
         if @leave:
           @rendered_lines = 0
         else:
-          _clear_locked!()
+          self._clear_locked!
         @entries = []
         @refreshing = false
         if @refresh_task:
-          @refresh_task.cancel()
+          @refresh_task.cancel
           @refresh_task = null
     event
 
@@ -175,7 +175,7 @@ class QueryLogger:
         task.sleep(@refresh)
         keep_running = @mutex.synchronize:
           if @refreshing:
-            _render_locked!()
+            self._render_locked!
             true
           else:
             false
@@ -190,7 +190,7 @@ class QueryLogger:
       @to.write_str("\u{1b}[#{@rendered_lines}A")
     @entries.each |event|:
       @to.write_str("\r\u{1b}[2K" + _line(event) + "\n")
-    @to.flush()
+    @to.flush
     @rendered_lines = @entries.count
     null
 
@@ -202,7 +202,7 @@ class QueryLogger:
       @to.write_str("\r\u{1b}[2K\n")
       remaining -= 1
     @to.write_str("\u{1b}[#{@rendered_lines}A")
-    @to.flush()
+    @to.flush
     @rendered_lines = 0
     null
 
@@ -315,12 +315,12 @@ class ModelConfig:
   def init(@name, @table: null, @expected_schema: null, @attributes: [], @validations: [], @executor: null, @binding_owner: null, @tableless: false, @tableless_persisted: true):
     if @expected_schema:
       @attributes = @expected_schema.columns
-    _reindex_attributes!()
+    self._reindex_attributes!
   def expected_schema?():
     @expected_schema.present?
   def set_attributes!(attributes):
     @attributes = attributes
-    _reindex_attributes!()
+    self._reindex_attributes!
     self
   def _reindex_attributes!():
     @attribute_map = {}
@@ -384,7 +384,7 @@ class ModelType:
     executor = _require_executor(@config)
     return executor if executor.err?
     executor.value.get(self, where: where)
-  def transaction(mode: :deferred, &blk):
+  def transaction(mode as Symbol: :deferred, &blk):
     raise ArgumentError("transaction requires a block") unless blk
     executor = _require_executor(@config)
     return executor if executor.err?
@@ -448,7 +448,7 @@ mixin ModelInstance:
     self
   def mark_persisted!():
     @persisted = true
-    clear_changes!()
+    self.clear_changes!
     self
   def mark_new!():
     @persisted = false
@@ -642,13 +642,13 @@ class TablelessExecutor:
     Ok(model)
   def save(record):
     if @persisted:
-      record.mark_persisted!()
+      record.mark_persisted!
     else:
-      record.clear_changes!()
+      record.clear_changes!
     Ok(record)
   def delete(record):
-    record.mark_new!()
-    record.clear_changes!()
+    record.mark_new!
+    record.clear_changes!
     Ok(record)
   def find(model, id):
     Err(NotFoundError("tableless models do not support find"))
@@ -890,7 +890,7 @@ macro def _model_members(subject as Ast, descriptor as Ast) -> Ast:
     class_method def get(where:):
       orm_model.get(where: where)
 
-    class_method def transaction(mode: :deferred, &blk):
+    class_method def transaction(mode as Symbol: :deferred, &blk):
       orm_model.transaction(mode: mode):
         blk()
 

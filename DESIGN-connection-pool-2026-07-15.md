@@ -404,11 +404,11 @@ database.bind!(Person, EntityPath)
 database.with_connection(timeout: null, &blk)
 database.transaction(mode: :deferred, timeout: null, &blk)
 
-database.stats()
-database.prune!()
-database.disconnect!()
-database.close!()
-database.closed?()
+database.stats
+database.prune!
+database.disconnect!
+database.close!
+database.closed?
 database.drain!(timeout: null)
 ```
 
@@ -806,7 +806,7 @@ class Reports < ember.Controller:
   def show():
     child = task.spawn:
       Person.find(42)
-    child.wait()
+    child.wait
 ```
 
 Parent controller уже держит lease, child должен получить второй. При
@@ -859,9 +859,9 @@ Checked-out databases наследуют instrumenter; existing `orm.Instrumenta
 Pool metrics читаются без ORM-копии:
 
 ```amber
-database.stats()[:open]
-database.stats()[:leased]
-database.stats()[:waiting]
+database.stats[:open]
+database.stats[:leased]
+database.stats[:waiting]
 ```
 
 Wrapper не выбирает автоматически:

@@ -12,73 +12,84 @@ EXPECTED = 17
 class Person:
   use orm.model(table: :people)
 
-def check(score, condition, label):
+def check(score as Int, condition as Bool, label as Str) -> Int:
   raise ValueError("pool self-test failed: " + label) unless condition
   score + 1
 
 # A controller integration owns this wrapper. The action only sees its model.
-def controller_action(id):
+def controller_action(id as Int):
   Person.find(id)
 
 # A bare route needs explicit route middleware or `before database_request`.
 # The handler itself can still remain unaware of the pool.
-def bare_action(id):
+def bare_action(id as Int):
   Person.find(id)
 
-def main():
+def main() -> Int:
   score = 0
-  database = memory_pool(name: "amber_orm_pool_selftest", min_size: 1, max_size: 2)
+  database = memory_pool(
+    name: "amber_orm_pool_selftest",
+    min_size: 1,
+    max_size: 2)
   database.with_connection |connection|:
     connection.exec("create table people(id integer primary key, name text not null)")
 
-  score = check(score, database.bind!(Person).ok?(), "initial bind")
-  score = check(score, database.bind!(Person).ok?(), "idempotent bind")
+  score = check(score, database.bind!(Person).ok?, "initial bind")
+  score = check(score, database.bind!(Person).ok?, "idempotent bind")
 
   person = Person.create(name: "Ada").or_raise
   score = check(score, person.persisted? and person[:id] == 1, "create")
-  score = check(score, Person.find(person[:id]).or_raise[:name] == "Ada", "operation-local find")
+  score = check(
+    score,
+    Person.find(person[:id]).or_raise[:name] == "Ada",
+    "operation-local find")
 
   # This is the controller-generated execution wrapper: the action is not
   # pool-aware, and nested ORM calls reuse the same task-local lease.
   database.with_connection:
-    score = check(score, database.stats()[:leased] == 1, "controller lease")
-    score = check(score, controller_action(person[:id]).or_raise[:name] == "Ada", "controller action")
+    score = check(score, database.stats[:leased] == 1, "controller lease")
+    score = check(
+      score,
+      controller_action(person[:id]).or_raise[:name] == "Ada",
+      "controller action")
     nested_leased = database.with_connection:
-      database.stats()[:leased]
+      database.stats[:leased]
     score = check(score, nested_leased == 1, "nested lease reuse")
 
   # This is the explicit middleware installed by a bare route binding.
   bare_result = database.with_connection:
     bare_action(person[:id])
   score = check(score, bare_result.or_raise[:name] == "Ada", "bare middleware")
-  score = check(score, database.stats()[:leased] == 0, "lease release")
+  score = check(score, database.stats[:leased] == 0, "lease release")
 
   rolled_back = Person.transaction(mode: :immediate):
     Person.create(name: "Rollback").or_raise
     Err(orm.PersistenceError("abort"))
-  score = check(score, rolled_back.err?(), "Err transaction result")
-  score = check(score, Person.where({name: "Rollback"}).all().or_raise.count == 0, "Err rollback")
+  score = check(score, rolled_back.err?, "Err transaction result")
+  score = check(
+    score,
+    Person.where({name: "Rollback"}).all.or_raise.count == 0,
+    "Err rollback")
 
   committed = database.transaction(mode: :immediate):
     Person.create(name: "Committed")
-  score = check(score,
-    committed.ok?() and Person.where({name: "Committed"}).first().or_raise[:name] == "Committed",
-    "commit")
+  committed_name = Person.where({name: "Committed"}).first.or_raise[:name]
+  score = check(score, committed.ok? and committed_name == "Committed", "commit")
 
   # Child tasks do not inherit an exclusive parent lease.
   child_observation = database.with_connection:
     child = task.spawn:
       database.with_connection:
         found = Person.find(person[:id]).or_raise
-        {leased: database.stats()[:leased], name: found[:name]}
-    child.wait()
+        {leased: database.stats[:leased], name: found[:name]}
+    child.wait
   score = check(score, child_observation[:leased] == 2, "child lease isolation")
   score = check(score, child_observation[:name] == "Ada", "child model access")
 
   other = memory_pool(name: "amber_orm_pool_other", min_size: 1, max_size: 1)
   conflict = other.bind!(Person)
-  score = check(score, conflict.err?(), "binding guard")
-  other.close!()
+  score = check(score, conflict.err?, "binding guard")
+  other.close!
 
   single = memory_pool(name: "amber_orm_pool_timeout", min_size: 1, max_size: 1)
   timed_out = single.with_connection:
@@ -88,10 +99,11 @@ def main():
           false
       rescue ConnectionPoolTimeoutError |error|:
         error.message.contains?("timed out")
-    child.wait()
+    child.wait
   score = check(score, timed_out, "timeout translation")
-  single.close!()
+  single.close!
 
-  database.close!()
-  score = check(score, database.closed?() and single.closed?() and other.closed?(), "lifecycle")
+  database.close!
+  all_closed = database.closed? and single.closed? and other.closed?
+  score = check(score, all_closed, "lifecycle")
   score

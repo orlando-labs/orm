@@ -12,7 +12,7 @@ EXPECTED = 29
 
 class InstrumentationProbe:
   def init():
-    @mutex = Mutex.new()
+    @mutex = Mutex.new
     @started = 0
     @finished = 0
     @succeeded = 0
@@ -111,7 +111,7 @@ class LooseSignup:
 def main():
   score = 0
 
-  query_output = io.Buffer.new()
+  query_output = io.Buffer.new
   query_logger = orm.QueryLogger(to: query_output, dynamic: true, leave: true, refresh: 0.01, color: false)
   parallel_queries = orm.Instrumentation([query_logger])
   first_query = task.spawn:
@@ -122,8 +122,8 @@ def main():
     parallel_queries.instrument(sqlite3.SqlExecution(:query, "UPDATE second", [])):
       task.sleep(0.03)
       2
-  first_query.wait()
-  second_query.wait()
+  first_query.wait
+  second_query.wait
   rendered_queries = query_output.to_str
   score = check(score, rendered_queries.contains?("SELECT first") and rendered_queries.contains?("UPDATE second") and rendered_queries.contains?("[v]") and rendered_queries.contains?("\u{1b}[2K"))
 

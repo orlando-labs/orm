@@ -9,7 +9,7 @@ export ModelBindingError
 class ConnectionPoolError < orm.OrmError:
   attr source
 
-  def init(@message, @source: null)
+  def init(@message as Str, @source: null)
 
 class ConnectionPoolClosedError < ConnectionPoolError
 class ConnectionPoolTimeoutError < ConnectionPoolError
