@@ -308,10 +308,11 @@ class ModelConfig:
   attr attributes
   attr validations
   attr executor
+  attr binding_owner
   attr tableless? from @tableless
   attr tableless_persisted? from @tableless_persisted
 
-  def init(@name, @table: null, @expected_schema: null, @attributes: [], @validations: [], @executor: null, @tableless: false, @tableless_persisted: true):
+  def init(@name, @table: null, @expected_schema: null, @attributes: [], @validations: [], @executor: null, @binding_owner: null, @tableless: false, @tableless_persisted: true):
     if @expected_schema:
       @attributes = @expected_schema.columns
     _reindex_attributes!()
@@ -327,8 +328,9 @@ class ModelConfig:
       @attribute_map[spec.name] = spec
   def columns():
     @attributes.select |spec|: spec.column?
-  def set_executor!(executor):
+  def set_executor!(executor, binding_owner: null):
     @executor = executor
+    @binding_owner = binding_owner
     self
   def schema():
     Schema(columns)
@@ -354,10 +356,10 @@ class ModelType:
     @config.attributes
   def validations():
     @config.validations
-  def bind!(executor):
+  def bind!(executor, binding_owner: null):
     result = executor.bind(self)
     return result if result.err?
-    @config.set_executor!(executor)
+    @config.set_executor!(executor, binding_owner: binding_owner)
     Ok(self)
   def bound?():
     @config.executor.present?
@@ -382,6 +384,12 @@ class ModelType:
     executor = _require_executor(@config)
     return executor if executor.err?
     executor.value.get(self, where: where)
+  def transaction(mode: :deferred, &blk):
+    raise ArgumentError("transaction requires a block") unless blk
+    executor = _require_executor(@config)
+    return executor if executor.err?
+    executor.value.transaction(mode: mode):
+      blk()
   def where(predicate = null, &blk):
     Query(self).where(predicate, &blk)
 
@@ -881,6 +889,10 @@ macro def _model_members(subject as Ast, descriptor as Ast) -> Ast:
 
     class_method def get(where:):
       orm_model.get(where: where)
+
+    class_method def transaction(mode: :deferred, &blk):
+      orm_model.transaction(mode: mode):
+        blk()
 
     class_method def where(predicate = null, &blk):
       orm_model.where(predicate, &blk)

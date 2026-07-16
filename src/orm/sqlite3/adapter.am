@@ -1,0 +1,301 @@
+package orm.sqlite3.adapter
+
+import orm
+import sqlite3
+from orm.pool import ConnectionPoolClosedError
+from orm.pool import ConnectionPoolTimeoutError
+from orm.pool import ConnectionPoolLeaseError
+
+export adapter, SqliteAdapter
+
+def adapter(db, instrumentation: null):
+  SqliteAdapter(db, instrumentation: instrumentation)
+
+class _RollbackResult < orm.OrmError:
+  attr result
+
+  def init(@result):
+    @message = "rollback requested by Err result"
+
+class SqliteAdapter:
+  attr db
+
+  def init(@db, instrumentation: null):
+    if instrumentation:
+      @db.instrument_queries!(instrumentation)
+
+  def transaction(mode: :deferred, &blk):
+    raise ArgumentError("transaction requires a block") unless blk
+    try:
+      @db.transaction(mode: mode) |_transaction|:
+        result = blk()
+        rollback = false
+        try:
+          rollback = result.err?()
+        rescue NoMethodError |error|:
+          rollback = false
+        if rollback:
+          raise _RollbackResult(result)
+        result
+    rescue _RollbackResult |rollback|:
+      rollback.result
+
+  def bind(model):
+    return Ok(model) if model.config.tableless?
+    unless model.table:
+      return Err(orm.SchemaError("sqlite adapter requires a table name"))
+    actual = _sqlite_schema(@db, model.table)
+    if model.config.expected_schema?:
+      diff = _schema_diff(model.config.expected_schema, actual)
+      unless diff.empty?:
+        return Err(orm.SchemaMismatchError("schema does not match model " + model.name.to_str, diff))
+    model.config.set_attributes!(actual.columns)
+    Ok(model)
+
+  def save(record):
+    if record.persisted?:
+      _update(record)
+    else:
+      _insert(record)
+
+  def delete(record):
+    pk = record.config.primary_key
+    unless pk:
+      return Err(orm.PersistenceError("delete requires a primary key column"))
+    id = record[pk.name]
+    if id.absent?:
+      return Err(orm.PersistenceError("delete requires a present primary key value"))
+    where = {}
+    where[pk.name] = id
+    try:
+      @db.delete(record.config.table, where: where)
+      record.mark_new!()
+      record.clear_changes!()
+      Ok(record)
+    rescue |e|:
+      Err(_persistence_error(e))
+
+  def find(model, id):
+    pk = model.config.primary_key
+    unless pk:
+      return Err(orm.PersistenceError("find requires a primary key column"))
+    where = {}
+    where[pk.name] = id
+    get(model, where: where)
+
+  def get(model, where:):
+    first(model, where: where)
+
+  def all(model, where: null):
+    try:
+      rows = @db.select(model.table, where: _sqlite_where(where))
+      Ok(rows.map |row|: _record_from_row(model, row))
+    rescue |e|:
+      Err(_persistence_error(e))
+
+  def first(model, where: null):
+    try:
+      row = @db.get(model.table, where: _sqlite_where(where))
+      if row:
+        Ok(_record_from_row(model, row))
+      else:
+        Err(orm.NotFoundError("record not found"))
+    rescue |e|:
+      Err(_persistence_error(e))
+
+  def _insert(record):
+    cols = []
+    row = {}
+    record.config.columns.each |column|:
+      value = record[column.name]
+      include_column = true
+      if column.primary_key? and column.generated? and value.absent?:
+        include_column = false
+      if include_column:
+        cols.push!(column.name)
+        row[column.name] = value
+    try:
+      result = @db.insert(record.config.table, columns: cols, values: [row])
+      pk = record.config.primary_key
+      if pk and pk.generated? and record[pk.name].absent?:
+        record[pk.name] = result[:last_insert_id]
+      record.mark_persisted!()
+      Ok(record)
+    rescue |e|:
+      Err(_persistence_error(e))
+
+  def _update(record):
+    pk = record.config.primary_key
+    unless pk:
+      return Err(orm.PersistenceError("update requires a primary key column"))
+    id = record[pk.name]
+    if id.absent?:
+      return Err(orm.PersistenceError("update requires a present primary key value"))
+    set = {}
+    record.changes.each |name, change|:
+      if name != pk.name:
+        set[name] = change[:after]
+    if set.count == 0:
+      record.clear_changes!()
+      return Ok(record)
+    where = {}
+    where[pk.name] = id
+    try:
+      @db.update(record.config.table, set: set, where: where)
+      record.clear_changes!()
+      Ok(record)
+    rescue |e|:
+      Err(_persistence_error(e))
+
+def _persistence_error(error):
+  case error:
+    when Sqlite3.PoolTimeoutError:
+      ConnectionPoolTimeoutError(error.message, source: error)
+    when Sqlite3.PoolClosedError:
+      ConnectionPoolClosedError(error.message, source: error)
+    when Sqlite3.PoolLeaseError:
+      ConnectionPoolLeaseError(error.message, source: error)
+    else:
+      orm.PersistenceError(error.message)
+
+def _sqlite_schema(db, table):
+  rows = db.query("PRAGMA table_info(" + sqlite3.quote_identifier(table) + ")")
+  columns = []
+  rows.each |row|:
+    primary_key = row[:pk] > 0
+    type = _sqlite_type(row[:type])
+    columns.push!(orm.Column(row[:name],
+      type: type,
+      nullable: row[:notnull] == 0,
+      default: row[:dflt_value],
+      primary_key: primary_key,
+      generated: primary_key and type == :integer,
+      db_type: row[:type]))
+  orm.Schema(columns)
+
+def _sqlite_type(db_type):
+  normalized = db_type.upcase
+  if normalized.contains?("INT"):
+    :integer
+  elif normalized.contains?("CHAR") or normalized.contains?("CLOB") or normalized.contains?("TEXT"):
+    :text
+  elif normalized.length == 0 or normalized.contains?("BLOB"):
+    :binary
+  elif normalized.contains?("REAL") or normalized.contains?("FLOA") or normalized.contains?("DOUB"):
+    :float
+  else:
+    :any
+
+def _schema_diff(expected, actual):
+  missing = []
+  extra = []
+  different = []
+  expected.columns.each |column|:
+    actual_column = actual.find(column.name)
+    if actual_column:
+      reasons = _column_differences(column, actual_column)
+      if reasons.count > 0:
+        different.push!({column: column.name, reasons: reasons, expected: column, actual: actual_column})
+    else:
+      missing.push!(column.name)
+  actual.columns.each |column|:
+    unless expected.find(column.name):
+      extra.push!(column.name)
+  orm.SchemaDiff(missing, extra, different)
+
+def _column_differences(expected, actual):
+  differences = []
+  differences.push!(:type) if expected.type != actual.type
+  differences.push!(:nullability) if expected.nullable? != actual.nullable?
+  differences.push!(:primary_key) if expected.primary_key? != actual.primary_key?
+  differences.push!(:generated) if expected.generated? != actual.generated?
+  differences.push!(:default) if expected.default != actual.default
+  if expected.db_type and expected.db_type.downcase != actual.db_type.downcase:
+    differences.push!(:db_type)
+  differences
+
+def _sqlite_where(predicate):
+  return null unless predicate
+  binds = []
+  sqlite3.fragment(_sqlite_where_sql(predicate, binds), binds)
+
+def _sqlite_where_sql(predicate, binds):
+  case predicate:
+    when orm.WhereComparison:
+      _sqlite_where_term(predicate.attribute, predicate.operator, predicate.value, binds)
+    when orm.WhereJunction:
+      _sqlite_where_junction(predicate, binds)
+    when orm.WhereMap:
+      _sqlite_where_map(predicate.values, binds)
+    when (Map | StrictMap):
+      _sqlite_where_map(predicate, binds)
+    else:
+      raise ArgumentError("unsupported where predicate")
+
+def _sqlite_where_junction(predicate, binds):
+  joiner = " AND "
+  if predicate.operator == :any:
+    joiner = " OR "
+  elif predicate.operator != :all:
+    raise ArgumentError("unsupported where junction")
+  "(" + _sqlite_where_sql(predicate.left, binds) + joiner + _sqlite_where_sql(predicate.right, binds) + ")"
+
+def _sqlite_where_map(values, binds):
+  terms = values.map |attribute, value|:
+    operator = :eq
+    if Array === value or Tuple === value:
+      operator = :one_of
+    _sqlite_where_term(attribute, operator, value, binds)
+  return "1 = 1" if terms.count == 0
+  terms.join(" AND ")
+
+def _sqlite_where_term(attribute, operator, value, binds):
+  column = sqlite3.quote_identifier(attribute)
+  if operator == :eq:
+    return column + " IS NULL" if value.absent?
+    binds.push!(value)
+    return column + " = ?"
+  if operator == :ne:
+    return column + " IS NOT NULL" if value.absent?
+    binds.push!(value)
+    return column + " != ?"
+  if operator == :one_of or operator == :not_one_of:
+    values = _sqlite_where_values(value)
+    if values.count == 0:
+      return "0 = 1" if operator == :one_of
+      return "1 = 1"
+    placeholders = values.map |entry|:
+      binds.push!(entry)
+      "?"
+    keyword = " IN "
+    keyword = " NOT IN " if operator == :not_one_of
+    return column + keyword + "(" + placeholders.join(", ") + ")"
+  if value.absent?:
+    raise ArgumentError("ordered where comparisons do not accept null")
+  sql_operator = _sqlite_where_operator(operator)
+  binds.push!(value)
+  column + " " + sql_operator + " ?"
+
+def _sqlite_where_values(value):
+  case value:
+    when (Array | Tuple):
+      value.to_array
+    else:
+      raise ArgumentError("where one_of expects an Array or Tuple")
+
+def _sqlite_where_operator(operator):
+  if operator == :gt:
+    ">"
+  elif operator == :gte:
+    ">="
+  elif operator == :lt:
+    "<"
+  elif operator == :lte:
+    "<="
+  else:
+    raise ArgumentError("unsupported where comparison")
+
+def _record_from_row(model, row):
+  record = model.new(row)
+  record.mark_persisted!()
+  record

@@ -10,3 +10,5 @@ profiles:
 modules:
   - name: orm
     path: src/orm.am
+  - name: orm.pool
+    path: src/orm/pool.am

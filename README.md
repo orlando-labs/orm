@@ -2,6 +2,10 @@
 
 Source-only P0 ORM/modeling package for Amber.
 
+The implemented ORM pool substrate and the proposed controller-transparent /
+explicit bare-handler web integration are specified in
+[`DESIGN-connection-pool-2026-07-15.md`](DESIGN-connection-pool-2026-07-15.md).
+
 This first implementation provides the runtime layers from the design:
 
 - inferred columns with optional exact schema expectations;
@@ -10,6 +14,8 @@ This first implementation provides the runtime layers from the design:
 - `Result`-returning `save`, `find`, `get`, and `delete`;
 - tableless models;
 - SQLite execution through `sqlite3-amber`;
+- a thin pool facade with one-time model binding and scoped checkout;
+- model-level transactions with rollback on an `Err` block result;
 - execution instrumentation and an opt-in live query logger;
 - model/tableless macros for class-local declarations.
 
@@ -117,6 +123,77 @@ quoted identifiers and bound parameters rather than interpolated values.
 `save` returns `Ok(record)` or `Err(orm.ValidationError /
 orm.PersistenceError)`. Use `.or_raise` when escalation is wanted.
 
+## Connection pools
+
+`orm.sqlite3` owns the public constructors while the adapter and pool
+implementation live in separate modules. Models bind once during application
+startup; controller and business code continues to use the ordinary model API:
+
+```amber
+from orm.sqlite3 import pool as sqlite_pool
+
+database = sqlite_pool("data/app.db",
+  min_size: 1,
+  max_size: 8,
+  checkout_timeout: 0.25,
+  busy_timeout: 2.0,
+  pragmas: {foreign_keys: true, journal_mode: :wal})
+
+database.bind!(Person, AuditEvent).or_raise
+
+database.with_connection:
+  Person.find(id)
+```
+
+Nested model operations reuse the current logical-task lease. A spawned child
+does not inherit that exclusive lease and checks out its own connection. Calls
+made without an outer scope still work through operation-local checkout, which
+is useful for scripts; a web request scope is what guarantees one connection
+across several related ORM operations.
+
+The future Ember controller integration owns that request wrapper, so a
+controller action remains pool-unaware:
+
+```amber
+class People < ember.Controller:
+  def show(id as Int):
+    Person.find(id)
+```
+
+A bare `&handler` has no controller lifecycle and therefore needs explicit
+infrastructure at the route/declaration boundary. Both proposed forms preserve
+the handler signature:
+
+```amber
+db_request = ember_orm.connection(database)
+
+routes = ember.routes:
+  post "/people", to: &create, before: [db_request]
+
+# Equivalent intrinsic policy for a reusable bare handler:
+before db_request
+def create(request):
+  Person.create(name: request.query(:name))
+```
+
+`before` belongs to the web integration and is an annotation macro that wraps
+the declaration at compile time; it is not an implicit Amber binding and is not
+implemented by this ORM package.
+
+Transactions are available through either the model or the pool wrapper. An
+`Err` returned by the block rolls the transaction back and is returned intact:
+
+```amber
+result = Person.transaction(mode: :immediate):
+  Person.create(name: "Ada").or_raise
+  Err(orm.PersistenceError("abort"))
+```
+
+`with_connection` timeout/closed/lease failures use the DB-neutral errors from
+`orm.pool`: `ConnectionPoolTimeoutError`, `ConnectionPoolClosedError`, and
+`ConnectionPoolLeaseError`. Rebinding an already configured model to another
+pool returns `Err(ModelBindingError)`.
+
 Records use ordinary index access for dynamic attributes:
 
 ```amber
@@ -168,9 +245,13 @@ structured payloads such as `ValidationError#errors` and
 
 ```text
 amber.build.yaml          core source-only package manifest
-src/orm.am                model, attributes, dirty tracking, validation, tableless
-src/orm/sqlite3.am        SQLite adapter over sqlite3-amber
-test/selftest.am          tableless and SQLite-backed conformance test
+src/orm.am                model, attributes, validation, queries, transactions
+src/orm/pool.am           DB-neutral pool and binding errors
+src/orm/sqlite3.am        public SQLite adapter/pool constructors
+src/orm/sqlite3/adapter.am SQLite model executor
+src/orm/sqlite3/pool.am   thin wrapper over sqlite3.Pool
+test/selftest.am          existing ORM conformance test
+test/pool_selftest.am     pool, scope, transaction, and concurrency contract
 examples/tableless.am     tableless usage
 examples/sqlite_basic.am  SQLite usage
 ```
@@ -182,4 +263,7 @@ From this repo:
 ```sh
 ../amber-lang/build/amberc build test/selftest.build.yaml --target native --out-dir out --cache-dir cache
 ./out/orm.selftest
+
+../amber-lang/build/amberc build test/pool_selftest.build.yaml --target native --out-dir out-pool --cache-dir cache-pool
+./out-pool/orm.pool_selftest
 ```

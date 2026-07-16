@@ -1,0 +1,40 @@
+schema: amber.build.v1
+name: orm.pool_selftest
+root: orm.pool_selftest
+
+profiles:
+  required: [core.v1, ffi.v1, macro.v1]
+  optional: []
+  forbidden: []
+
+modules:
+  - name: sqlite3
+    path: ../../sqlite3-amber/src/sqlite3.am
+  - name: orm
+    path: ../src/orm.am
+  - name: orm.pool
+    path: ../src/orm/pool.am
+  - name: orm.sqlite3.adapter
+    path: ../src/orm/sqlite3/adapter.am
+  - name: orm.sqlite3.pool
+    path: ../src/orm/sqlite3/pool.am
+  - name: orm.sqlite3
+    path: ../src/orm/sqlite3.am
+  - name: orm.pool_selftest
+    path: pool_selftest.am
+
+native_extensions:
+  - name: sqlite3
+    language: c
+    sources:
+      - ../../sqlite3-amber/native/sqlite3_ext.c
+      - ../../sqlite3-amber/native/sqlite3.c
+    headers:
+      - ../../sqlite3-amber/native/sqlite3.h
+    defines:
+      - SQLITE_THREADSAFE=1
+      - SQLITE_ENABLE_COLUMN_METADATA=1
+      - SQLITE_ENABLE_FTS5=1
+      - SQLITE_ENABLE_JSON1=1
+      - SQLITE_DQS=0
+      - SQLITE_OMIT_LOAD_EXTENSION=1
