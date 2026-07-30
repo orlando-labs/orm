@@ -390,6 +390,8 @@ class ModelType:
     return executor if executor.err?
     executor.value.transaction(mode: mode):
       blk()
+  def all():
+    Query(self).all
   def where(predicate = null, &blk):
     Query(self).where(predicate, &blk)
 
@@ -893,6 +895,9 @@ macro def _model_members(subject as Ast, descriptor as Ast) -> Ast:
     class_method def transaction(mode as Symbol: :deferred, &blk):
       orm_model.transaction(mode: mode):
         blk()
+
+    class_method def all():
+      orm_model.all
 
     class_method def where(predicate = null, &blk):
       orm_model.where(predicate, &blk)

@@ -8,7 +8,7 @@ from sync import Mutex
 
 export main
 
-EXPECTED = 29
+EXPECTED = 30
 
 class InstrumentationProbe:
   def init():
@@ -219,6 +219,8 @@ def main():
     score = check(score, MacroUser.bind!(sqlite_adapter(db)).ok?)
     macro_user = MacroUser.create(email: "macro@example.test", age: 5).or_raise
     score = check(score, MacroUser === macro_user and macro_user.persisted? and macro_user[:id].present?)
+    macro_users = MacroUser.all.or_raise
+    score = check(score, macro_users.count == 1 and MacroUser === macro_users[0])
     macro_user[:age] = 6
     reloaded_macro_user = MacroUser.get(where: {id: macro_user[:id]}).or_raise
     macro_user.save.or_raise

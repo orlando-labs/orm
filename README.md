@@ -80,10 +80,10 @@ unevaluated syntax. The generated runtime table value is still a `Str` or
 `Symbol`; calling the macro does not pretend `table: :users` is already a
 runtime string during expansion.
 
-Macro-backed constructors, `new`, `create`, `find`, `get`, and query hydration
-all return an instance of the declared model class. Constructors and create
-methods accept either an attribute map or keyword attributes. Dynamic factory
-models keep the same API and return `orm.Record` instances.
+Macro-backed constructors, `new`, `create`, `find`, `get`, `all`, and query
+hydration all return an instance of the declared model class. Constructors and
+create methods accept either an attribute map or keyword attributes. Dynamic
+factory models keep the same API and return `orm.Record` instances.
 
 The factory shape is still available and is what the macros generate:
 
@@ -113,6 +113,9 @@ adults = User.where |query|:
 
 users = adults.all.or_raise
 first = adults.first.or_raise
+
+# An unfiltered model query does not need an empty `where`.
+all_users = User.all.or_raise
 ```
 
 Comparisons support `==`, `!=`, `>`, `>=`, `<`, `<=`, `one_of`,
