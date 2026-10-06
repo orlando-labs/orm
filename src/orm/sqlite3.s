@@ -41,7 +41,7 @@ def pool(
     database.close!
 
 def memory_pool(
-  name as (Str | Symbol): "amber_orm_pool",
+  name as (Str | Symbol): "sputnik_orm_pool",
   min_size as Int: 1,
   max_size as Int: 5,
   checkout_timeout as (Float | Int | TimePeriod)?: 5.0,

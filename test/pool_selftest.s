@@ -28,7 +28,7 @@ def bare_action(id as Int):
 def main() -> Int:
   score = 0
   database = memory_pool(
-    name: "amber_orm_pool_selftest",
+    name: "sputnik_orm_pool_selftest",
     min_size: 1,
     max_size: 2)
   database.with_connection |connection|:
@@ -86,12 +86,12 @@ def main() -> Int:
   score = check(score, child_observation[:leased] == 2, "child lease isolation")
   score = check(score, child_observation[:name] == "Ada", "child model access")
 
-  other = memory_pool(name: "amber_orm_pool_other", min_size: 1, max_size: 1)
+  other = memory_pool(name: "sputnik_orm_pool_other", min_size: 1, max_size: 1)
   conflict = other.bind!(Person)
   score = check(score, conflict.err?, "binding guard")
   other.close!
 
-  single = memory_pool(name: "amber_orm_pool_timeout", min_size: 1, max_size: 1)
+  single = memory_pool(name: "sputnik_orm_pool_timeout", min_size: 1, max_size: 1)
   timed_out = single.with_connection:
     child = task.spawn:
       try:

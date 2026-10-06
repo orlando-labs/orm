@@ -164,8 +164,8 @@ def main():
   snapshot = form.attributes
   snapshot[:email] = "detached@example.test"
   score = check(score, form.changed? == false and form.persisted? == false and form[:email] == "ada@example.test")
-  form[:email] = "ada@amber.test"
-  score = check(score, form.changed? and form.changes[:email][:after] == "ada@amber.test")
+  form[:email] = "ada@sputnik.test"
+  score = check(score, form.changed? and form.changes[:email][:after] == "ada@sputnik.test")
   saved_form = form.save.or_raise
   score = check(score, saved_form.persisted? and saved_form.changed? == false)
 
@@ -205,13 +205,13 @@ def main():
       query.field(:age).one_of([35, 36])
     score = check(score, chained.all.or_raise.count == 1)
 
-    user[:email] = "ada@amber.test"
-    score = check(score, user.changed? and user.changes[:email][:after] == "ada@amber.test")
+    user[:email] = "ada@sputnik.test"
+    score = check(score, user.changed? and user.changes[:email][:after] == "ada@sputnik.test")
     user.save.or_raise
-    score = check(score, db.get(:users, where: {id: user[:id]})[:email] == "ada@amber.test")
+    score = check(score, db.get(:users, where: {id: user[:id]})[:email] == "ada@sputnik.test")
 
     found = User.find(user[:id]).or_raise
-    score = check(score, found[:email] == "ada@amber.test" and found.persisted?)
+    score = check(score, found[:email] == "ada@sputnik.test" and found.persisted?)
 
     found.delete.or_raise
     score = check(score, db.scalar("select count(*) from users") == 0 and found.persisted? == false)

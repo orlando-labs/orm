@@ -1,18 +1,18 @@
-# DESIGN: тонкий connection-pool слой для `amber-orm`
+# DESIGN: тонкий connection-pool слой для `sputnik-orm`
 
 Date: 2026-07-15
 
 Status: ORM substrate implemented; Ember integration remains a design proposal
 
-Target: `amber-orm` и optional ORM integration будущего Ember framework
+Target: `sputnik-orm` и optional ORM integration будущего Ember framework
 
 Related:
 
-- [`amber-orm` public API design](../amber-lang/DESIGN-package-amber-orm-api-2026-07-09.md);
-- [Ember web framework design](../amber-lang/DESIGN-web-framework-2026-07-13.md);
-- [`sqlite3-amber`](../sqlite3-amber/README.md) и его реализованный `sqlite3.Pool`.
+- [`sputnik-orm` public API design](../sputnik-lang/DESIGN-package-sputnik-orm-api-2026-07-09.md);
+- [Ember web framework design](../sputnik-lang/DESIGN-web-framework-2026-07-13.md);
+- [`sqlite3-sputnik`](../sqlite3-sputnik/README.md) и его реализованный `sqlite3.Pool`.
 
-Этот документ расширяет P0-дизайн `amber-orm`, где connection pools были
+Этот документ расширяет P0-дизайн `sputnik-orm`, где connection pools были
 оставлены за пределами scope. Он учитывает два сознательно разных execution
 профиля Ember:
 
@@ -22,7 +22,7 @@ Related:
 Различие принципиально. Controller action должен выглядеть как нормальный
 ActiveRecord-shaped код и не знать о pool. Bare handler либо получает явную
 инфраструктурную обёртку route/app middleware, либо помечается annotation macro,
-либо сам открывает connection scope. Amber не подставляет скрытые bindings в
+либо сам открывает connection scope. Sputnik не подставляет скрытые bindings в
 произвольную функцию — по той же причине bare handler не получает
 receiver-local `status`, `header` и `render`.
 
@@ -32,7 +32,7 @@ receiver-local `status`, `header` и `render`.
 
 ### 0.1. Startup
 
-```amber
+```sputnik
 import orm
 from orm.sqlite3 import pool as sqlite_pool
 
@@ -55,7 +55,7 @@ database.bind!(Person, EntityPath).or_raise
 Optional Ember integration устанавливается один раз в application
 configuration. Точный constructor hook принадлежит Ember; предлагаемый shape:
 
-```amber
+```sputnik
 import ember
 import ember.integrations.orm as ember_orm
 
@@ -70,7 +70,7 @@ graceful shutdown. Она не оборачивает bare functions скрыт�
 
 ### 0.2. Controller target: action ничего не знает о pool
 
-```amber
+```sputnik
 routes = ember.routes:
   get "/people/:id", to: &People#show, params: {id: Int}
 
@@ -85,7 +85,7 @@ class People < ember.Controller:
 
 Generated/integrated execution conceptually выглядит так:
 
-```amber
+```sputnik
 database.with_connection:
   controller = People(request)
   controller.show(id)
@@ -98,7 +98,7 @@ database.with_connection:
 
 Без route middleware bare handler сам получает infrastructure dependency:
 
-```amber
+```sputnik
 def show(request, id as Int):
   database = request.service(:database)
 
@@ -112,7 +112,7 @@ def show(request, id as Int):
 
 Либо connection scope явно ставится на route:
 
-```amber
+```sputnik
 db_request = ember_orm.connection(database)
 
 routes = ember.routes:
@@ -124,12 +124,12 @@ routes = ember.routes:
 
 После такой явной инфраструктурной подготовки тело функции тоже может вызывать
 `Person.find(id)` без ручного checkout. Но это свойство route configuration, а
-не неявная capability любой Amber function.
+не неявная capability любой Sputnik function.
 
 Если connection scope является intrinsic требованием самой функции, explicit
 annotation переносит policy к declaration без boilerplate в body:
 
-```amber
+```sputnik
 from ember.middleware import before
 
 db_request = ember_orm.connection(database)
@@ -147,9 +147,9 @@ wrapper.
 
 ## 1. Главный design anchor: model API остаётся model API
 
-Канонический persistence surface уже выбран в `amber-orm`:
+Канонический persistence surface уже выбран в `sputnik-orm`:
 
-```amber
+```sputnik
 Person.find(id)
 Person.get(where: {slug: slug})
 Person.where |query|:
@@ -161,7 +161,7 @@ person.delete
 
 Connection pooling не должен заменять его на:
 
-```amber
+```sputnik
 session.repository(Person).find(id)
 services.db.repository(Person).find(id)
 Person.using(connection) |people|: people.find(id)
@@ -188,9 +188,9 @@ business/controller code
 
 ## 2. Фактическая низкоуровневая основа
 
-На дату этого документа `sqlite3-amber` уже сообщает:
+На дату этого документа `sqlite3-sputnik` уже сообщает:
 
-```amber
+```sputnik
 {
   pool: true,
   pool_wait: :cooperative,
@@ -214,7 +214,7 @@ business/controller code
 - rollback/statement cleanup при release;
 - `stats`, `prune!`, `disconnect!`, `drain!` и instrumentation.
 
-Поэтому `amber-orm` не реализует собственные queue, semaphore, mutex, idle
+Поэтому `sputnik-orm` не реализует собственные queue, semaphore, mutex, idle
 timer, task local или lease generation. Он только связывает уже существующий
 `sqlite3.Pool` с Model executor и предоставляет понятные lifecycle methods.
 
@@ -307,7 +307,7 @@ bare-web profile: он не создаёт request scope, а две послед
 3. Автоматически держать один lease вокруг controller dispatch.
 4. Сохранить явность bare function handlers через route middleware, annotation
    или explicit request service.
-5. Не дублировать pooling algorithms из `sqlite3-amber`.
+5. Не дублировать pooling algorithms из `sqlite3-sputnik`.
 6. Сохранить существующий `Result` persistence contract.
 7. Дать model-level transaction API без обращения controller к pool.
 8. Обеспечить bounded checkout, cancellation cleanup и graceful shutdown.
@@ -336,17 +336,17 @@ bare-web profile: он не создаёт request scope, а две послед
 
 ### 5.1. Package shape
 
-```amber
+```sputnik
 package orm.sqlite3
 
 export adapter, pool, memory_pool
 ```
 
-Текущий Amber bytecode emitter не поддерживает реэкспорт imported class
+Текущий Sputnik bytecode emitter не поддерживает реэкспорт imported class
 bindings из facade. Поэтому стабильный facade экспортирует constructors, а
 типы и DB-neutral errors остаются в собственных модулях:
 
-```amber
+```sputnik
 from orm.sqlite3.adapter import SqliteAdapter
 from orm.sqlite3.pool import OrmSqlitePool
 from orm.pool import ConnectionPoolTimeoutError, ModelBindingError
@@ -359,22 +359,22 @@ abstractions.
 Implemented files:
 
 ```text
-src/orm.am                   model transaction forwarding and binding owner
-src/orm/pool.am              DB-neutral pool/binding errors
-src/orm/sqlite3.am           public adapter/pool constructor facade
-src/orm/sqlite3/adapter.am   SQLite executor and Result-aware transaction
-src/orm/sqlite3/pool.am      thin wrapper over sqlite3.Pool
-test/pool_selftest.am        ORM/controller-scope contract
+src/orm.s                   model transaction forwarding and binding owner
+src/orm/pool.s              DB-neutral pool/binding errors
+src/orm/sqlite3.s           public adapter/pool constructor facade
+src/orm/sqlite3/adapter.s   SQLite executor and Result-aware transaction
+src/orm/sqlite3/pool.s      thin wrapper over sqlite3.Pool
+test/pool_selftest.s        ORM/controller-scope contract
 ```
 
-Новый native code в `amber-orm` не появляется.
+Новый native code в `sputnik-orm` не появляется.
 
 ### 5.2. Constructor
 
 `orm.sqlite3.pool` повторяет низкоуровневые options и добавляет ORM
 instrumentation один раз на pool:
 
-```amber
+```sputnik
 database = orm_sqlite.pool(path,
   mode: :create,
   uri: false,
@@ -388,7 +388,7 @@ database = orm_sqlite.pool(path,
   instrumentation: null)
 ```
 
-Как другие Amber resources, он поддерживает handle-returning и block-scoped
+Как другие Sputnik resources, он поддерживает handle-returning и block-scoped
 формы. Handle-returning form передаёт ownership приложению; block form вызывает
 `close!` в `ensure`.
 
@@ -399,7 +399,7 @@ Wrapper не включает WAL, foreign keys или busy timeout неявно
 
 ### 5.3. Pool surface
 
-```amber
+```sputnik
 database.bind!(Person, EntityPath)
 database.with_connection(timeout: null, &blk)
 database.transaction(mode: :deferred, timeout: null, &blk)
@@ -421,7 +421,7 @@ database.drain!(timeout: null)
 
 ### 6.1. `Pool#bind!`
 
-```amber
+```sputnik
 database.bind!(Person, EntityPath, AuditEvent).or_raise
 ```
 
@@ -440,13 +440,13 @@ shared model config не должен меняться во время concurren
 
 Небезопасно:
 
-```amber
+```sputnik
 User.bind!(sqlite_adapter(confined_database))
 ```
 
 Безопасный startup shape:
 
-```amber
+```sputnik
 User.bind!(sqlite_adapter(shareable_pool))
 ```
 
@@ -476,7 +476,7 @@ executor.
 
 ### 7.1. `Pool#with_connection`
 
-```amber
+```sputnik
 database.with_connection(timeout: 0.25) |connection|:
   Person.find(42)
   AuditEvent.create(message: "viewed")
@@ -499,7 +499,7 @@ database.with_connection(timeout: 0.25) |connection|:
 `with_connection`, существующий executor surface low-level Pool сам делает
 scoped checkout вокруг отдельного call:
 
-```amber
+```sputnik
 Person.find(42) # отдельный checkout/get/release
 ```
 
@@ -513,7 +513,7 @@ Hydrated record хранит attributes и ссылку на model type, не ph
 connection. Поэтому record можно вернуть из controller action/service и позже
 сохранить через model's pool-backed executor:
 
-```amber
+```sputnik
 person = Person.find(42).or_raise
 # controller checkout завершился
 person[:name] = "Ada"
@@ -531,7 +531,7 @@ person.save # при необходимости получает новый leas
 
 Предлагаемый application surface:
 
-```amber
+```sputnik
 integration = ember_orm.pool(database)
 
 app = ember.App(
@@ -556,7 +556,7 @@ Integration:
 
 До integration:
 
-```amber
+```sputnik
 controller = People(request)
 result = controller.show(id)
 normalize(result)
@@ -564,7 +564,7 @@ normalize(result)
 
 После composition:
 
-```amber
+```sputnik
 database.with_connection:
   controller = People(request)
   result = controller.show(id)
@@ -577,7 +577,7 @@ response server layer.
 
 ### 8.3. Controller example
 
-```amber
+```sputnik
 class People < ember.Controller:
   def update(id as Int):
     person = Person.find(id).or_raise
@@ -602,7 +602,7 @@ Automatic transaction на каждый controller action ухудшает read 
 Atomic business operation использует model-level transaction или explicit
 route integration:
 
-```amber
+```sputnik
 Person.transaction(mode: :immediate):
   person = Person.find(id).or_raise
   person[:slug] = next_slug
@@ -616,7 +616,7 @@ Person.transaction(mode: :immediate):
 
 ### 9.1. Explicit request service
 
-```amber
+```sputnik
 def create(request):
   database = request.service(:database)
 
@@ -634,14 +634,14 @@ exchange.
 Если application хочет чистое function body, explicitness переносится в route
 table:
 
-```amber
+```sputnik
 db_request = ember_orm.connection(database)
 
 routes = ember.routes:
   post "/people", to: &create, before: [db_request]
 ```
 
-```amber
+```sputnik
 def create(request):
   Person.create(name: request.query(:name))
 ```
@@ -653,7 +653,7 @@ def create(request):
 
 Function-intrinsic connection requirement можно выразить рядом с declaration:
 
-```amber
+```sputnik
 from ember.middleware import before
 
 db_request = ember_orm.connection(database)
@@ -663,11 +663,11 @@ def create(request):
   Person.create(name: request.query(:name))
 ```
 
-Amber macro system уже поддерживает этот surface: contiguous annotation-shaped
+Sputnik macro system уже поддерживает этот surface: contiguous annotation-shaped
 macro call непосредственно над declaration получает declaration `Ast` последним
 аргументом и возвращает replacement declaration. Концептуальное expansion:
 
-```amber
+```sputnik
 # В текущем macro.v1 annotation surface определяется по месту использования;
 # отдельный modifier `annotation macro def` не нужен.
 macro def before(middleware as Ast, declaration as Ast) -> Ast:
@@ -675,7 +675,7 @@ macro def before(middleware as Ast, declaration as Ast) -> Ast:
   ...
 ```
 
-```amber
+```sputnik
 def create(request):
   db_request.call(request) |next_request|:
     Person.create(name: next_request.query(:name))
@@ -710,7 +710,7 @@ method/path/name и не регистрирует route. Разделение po
 общая macro composition идёт source top-to-bottom, а runtime nesting легко
 прочитать наоборот. Ordered list фиксирует outer-to-inner order явно:
 
-```amber
+```sputnik
 before [request_id, authenticate, db_request]
 def create(request):
   ...
@@ -720,7 +720,7 @@ def create(request):
 
 После explicit startup bind допустим минимальный вариант:
 
-```amber
+```sputnik
 def show(request, id as Int):
   Person.find(id).map |person|:
     ember.render json: person.attributes
@@ -735,7 +735,7 @@ middleware, `with_connection` или transaction.
 
 Если model не bound и route/handler не получил database dependency:
 
-```amber
+```sputnik
 Person.find(id)
 ```
 
@@ -751,7 +751,7 @@ current task.
 
 Model macro получает class forwarding:
 
-```amber
+```sputnik
 Person.transaction(mode: :deferred, &blk)
 ```
 
@@ -775,7 +775,7 @@ ORM persistence возвращает `Result`, поэтому model/pool transac
 Implementation может использовать private rollback sentinel поверх уже
 проверенного low-level transaction cleanup. Raw
 `connection.transaction` сохраняет commit-on-normal-return semantics
-`sqlite3-amber`.
+`sqlite3-sputnik`.
 
 Если block проигнорировал ранний `Err` и вернул `Ok`, ORM не может угадать
 намерение пользователя.
@@ -801,7 +801,7 @@ transaction boundary и не является distributed transaction.
 
 Важный sizing edge:
 
-```amber
+```sputnik
 class Reports < ember.Controller:
   def show():
     child = task.spawn:
@@ -858,7 +858,7 @@ Checked-out databases наследуют instrumenter; existing `orm.Instrumenta
 
 Pool metrics читаются без ORM-копии:
 
-```amber
+```sputnik
 database.stats[:open]
 database.stats[:leased]
 database.stats[:waiting]
@@ -911,7 +911,7 @@ Graceful shutdown:
 
 ### 15.1. Repository/Session в каждом controller
 
-```amber
+```sputnik
 def show(id):
   people = services.db.repository(Person)
   people.find(id)
@@ -922,7 +922,7 @@ def show(id):
 
 ### 15.2. Per-request model bind
 
-```amber
+```sputnik
 User.bind!(sqlite_adapter(request_connection))
 ```
 
@@ -949,7 +949,7 @@ User.bind!(sqlite_adapter(request_connection))
 ### 15.6. ORM реализует второй pool
 
 Отклонено: дублирует уже проверенные waiting, affinity, cancellation, cleanup и
-maintenance semantics `sqlite3-amber`.
+maintenance semantics `sqlite3-sputnik`.
 
 ### 15.7. Automatic transaction на controller action
 
@@ -967,7 +967,7 @@ Result values, а не обязательно exceptions.
 
 В `DESIGN-web-framework-2026-07-13.md` нужно изменить:
 
-1. **Grounded substrate:** `sqlite3-amber` уже имеет `pool: true`, lease
+1. **Grounded substrate:** `sqlite3-sputnik` уже имеет `pool: true`, lease
    affinity и non-inheritable task-local connection context.
 2. **Request-scoped state:** connection lease остаётся request-scoped, но
    controller action не обязан получать repository/session object.
@@ -1071,7 +1071,7 @@ Result values, а не обязательно exceptions.
 6. Explicit route middleware может сделать bare route pool-scoped.
 7. `before` annotation может сделать scope intrinsic policy bare function.
 8. Bound model вне scope использует operation-local checkout.
-9. Pooling полностью принадлежит `sqlite3-amber`.
+9. Pooling полностью принадлежит `sqlite3-sputnik`.
 10. Public ambient current connection отсутствует.
 11. Internal non-inheritable task-local lease routing допустим и
     инкапсулирован.

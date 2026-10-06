@@ -22,7 +22,7 @@ def main():
     db.exec("create table users(id integer primary key, email text not null, age integer)")
     User.bind!(sqlite_adapter(db)).or_raise
     user = User.create(email: "ada@example.test", age: 36).or_raise
-    user[:email] = "ada@amber.test"
+    user[:email] = "ada@sputnik.test"
     user.save.or_raise
     adults = User.where |query|:
       query.field(:age) >= 18

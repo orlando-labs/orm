@@ -1,6 +1,6 @@
-# amber-orm
+# sputnik-orm
 
-Source-only P0 ORM/modeling package for Amber.
+Source-only P0 ORM/modeling package for Sputnik.
 
 The implemented ORM pool substrate and the proposed controller-transparent /
 explicit bare-handler web integration are specified in
@@ -13,16 +13,16 @@ This first implementation provides the runtime layers from the design:
 - structured validation errors;
 - `Result`-returning `save`, `find`, `get`, and `delete`;
 - tableless models;
-- SQLite execution through `sqlite3-amber`;
+- SQLite execution through `sqlite3-sputnik`;
 - a thin pool facade with one-time model binding and scoped checkout;
 - model-level transactions with rollback on an `Err` block result;
 - execution instrumentation and an opt-in live query logger;
 - model/tableless macros for class-local declarations.
 
-Macro-backed models use Amber's `use` injection macro surface. Amber's parser
+Macro-backed models use Sputnik's `use` injection macro surface. Sputnik's parser
 currently requires parenthesized calls inside the DSL:
 
-```amber
+```sputnik
 class User:
   use orm.model(table: :users):
     expect_schema:
@@ -43,7 +43,7 @@ belongs only inside that block.
 
 Tableless models declare attributes directly:
 
-```amber
+```sputnik
 class SignupForm:
   use orm.tableless:
     schema:
@@ -61,13 +61,13 @@ so schema and validation declarations stay grouped.
 These DSL blocks are executable macro blocks: `model`, `expect_schema`,
 `tableless`, `schema`, and `validate` invoke their declared `&blk`, while their
 nested macros emit ordinary quoted descriptor code. The package does not parse
-Amber's raw postfix/block AST shapes.
+Sputnik's raw postfix/block AST shapes.
 
 The public macros have exact call shapes rather than `*args` / `**opts`
 catch-alls. Factory `model` accepts an optional positional name plus `name:`,
 `table:`, `expected_schema:`, and `validations:`. Factory `tableless` accepts an
 optional positional name plus `name:`, `schema:`, `validations:`, and
-`persisted:`. In a `use` declaration, Amber supplies the class AST as the first
+`persisted:`. In a `use` declaration, Sputnik supplies the class AST as the first
 argument, so `name:` is derived and rejected as an override. Unknown keywords
 are expansion errors.
 
@@ -75,7 +75,7 @@ Without `table:`, the `use` form derives a deliberately small P0 default from
 the class name: `AuditLog` becomes `audit_logs`. Irregular plurals still require
 an explicit `table:`.
 
-Macro parameters are typed as `Ast` because function-like Amber macros receive
+Macro parameters are typed as `Ast` because function-like Sputnik macros receive
 unevaluated syntax. The generated runtime table value is still a `Str` or
 `Symbol`; calling the macro does not pretend `table: :users` is already a
 runtime string during expansion.
@@ -87,7 +87,7 @@ factory models keep the same API and return `orm.Record` instances.
 
 The factory shape is still available and is what the macros generate:
 
-```amber
+```sputnik
 def user_validations():
   orm.validate:
     expect(:email, email.present?, message: "must be present")
@@ -107,7 +107,7 @@ User = orm.model(name: :User,
 
 The initial query relation supports maps and an explicit comparison block:
 
-```amber
+```sputnik
 adults = User.where |query|:
   query.field(:age) >= 18
 
@@ -132,7 +132,7 @@ orm.PersistenceError)`. Use `.or_raise` when escalation is wanted.
 implementation live in separate modules. Models bind once during application
 startup; controller and business code continues to use the ordinary model API:
 
-```amber
+```sputnik
 from orm.sqlite3 import pool as sqlite_pool
 
 database = sqlite_pool("data/app.db",
@@ -157,7 +157,7 @@ across several related ORM operations.
 The future Ember controller integration owns that request wrapper, so a
 controller action remains pool-unaware:
 
-```amber
+```sputnik
 class People < ember.Controller:
   def show(id as Int):
     Person.find(id)
@@ -167,7 +167,7 @@ A bare `&handler` has no controller lifecycle and therefore needs explicit
 infrastructure at the route/declaration boundary. Both proposed forms preserve
 the handler signature:
 
-```amber
+```sputnik
 db_request = ember_orm.connection(database)
 
 routes = ember.routes:
@@ -180,13 +180,13 @@ def create(request):
 ```
 
 `before` belongs to the web integration and is an annotation macro that wraps
-the declaration at compile time; it is not an implicit Amber binding and is not
+the declaration at compile time; it is not an implicit Sputnik binding and is not
 implemented by this ORM package.
 
 Transactions are available through either the model or the pool wrapper. An
 `Err` returned by the block rolls the transaction back and is returned intact:
 
-```amber
+```sputnik
 result = Person.transaction(mode: :immediate):
   Person.create(name: "Ada").or_raise
   Err(orm.PersistenceError("abort"))
@@ -199,7 +199,7 @@ pool returns `Err(ModelBindingError)`.
 
 Records use ordinary index access for dynamic attributes:
 
-```amber
+```sputnik
 form[:email]
 form[:email] = "ada@example.test"
 ```
@@ -208,7 +208,7 @@ SQLite execution can be wrapped independently of logging. An instrumenter
 receives a `sqlite3.SqlExecution`, calls the real execution block, and notifies
 its subscribers with one `orm.ExecutionEvent`:
 
-```amber
+```sputnik
 instrumentation = orm.Instrumentation([tracer])
 User.bind!(sqlite_adapter(db, instrumentation: instrumentation))
 ```
@@ -217,7 +217,7 @@ Subscribers implement `started(event)` and `finished(event)`. This is the same
 surface used by the query logger, so an OpenTelemetry subscriber can create and
 finish spans without changing the adapter:
 
-```amber
+```sputnik
 logger = orm.QueryLogger(
   dynamic: true,
   leave: true,
@@ -239,24 +239,24 @@ value in place is not tracked; assign a replacement through
 to make that change observable. The ORM does not deep-copy user instances or
 opaque resources merely to take a snapshot.
 
-ORM failure objects are ordinary Amber classes under `Exception`, allowing
+ORM failure objects are ordinary Sputnik classes under `Exception`, allowing
 structured payloads such as `ValidationError#errors` and
-`SchemaMismatchError#diff`. SQLite faults use sqlite3-amber's bodyless
+`SchemaMismatchError#diff`. SQLite faults use sqlite3-sputnik's bodyless
 `NativeError` hierarchy because they originate in the native error registry.
 
 ## Layout
 
 ```text
-amber.build.yaml          core source-only package manifest
-src/orm.am                model, attributes, validation, queries, transactions
-src/orm/pool.am           DB-neutral pool and binding errors
-src/orm/sqlite3.am        public SQLite adapter/pool constructors
-src/orm/sqlite3/adapter.am SQLite model executor
-src/orm/sqlite3/pool.am   thin wrapper over sqlite3.Pool
-test/selftest.am          existing ORM conformance test
-test/pool_selftest.am     pool, scope, transaction, and concurrency contract
-examples/tableless.am     tableless usage
-examples/sqlite_basic.am  SQLite usage
+sputnik.build.yaml          core source-only package manifest
+src/orm.s                model, attributes, validation, queries, transactions
+src/orm/pool.s           DB-neutral pool and binding errors
+src/orm/sqlite3.s        public SQLite adapter/pool constructors
+src/orm/sqlite3/adapter.s SQLite model executor
+src/orm/sqlite3/pool.s   thin wrapper over sqlite3.Pool
+test/selftest.s          existing ORM conformance test
+test/pool_selftest.s     pool, scope, transaction, and concurrency contract
+examples/tableless.s     tableless usage
+examples/sqlite_basic.s  SQLite usage
 ```
 
 ## Running The Self-Test
@@ -264,9 +264,9 @@ examples/sqlite_basic.am  SQLite usage
 From this repo:
 
 ```sh
-../amber-lang/build/amberc build test/selftest.build.yaml --target native --out-dir out --cache-dir cache
+../sputnik-lang/build/sputnik build test/selftest.build.yaml --target native --out-dir out --cache-dir cache
 ./out/orm.selftest
 
-../amber-lang/build/amberc build test/pool_selftest.build.yaml --target native --out-dir out-pool --cache-dir cache-pool
+../sputnik-lang/build/sputnik build test/pool_selftest.build.yaml --target native --out-dir out-pool --cache-dir cache-pool
 ./out-pool/orm.pool_selftest
 ```

@@ -1,4 +1,4 @@
-schema: amber.build.v1
+schema: sputnik.build.v1
 name: orm.pool_selftest
 root: orm.pool_selftest
 
@@ -9,28 +9,28 @@ profiles:
 
 modules:
   - name: sqlite3
-    path: ../../sqlite3-amber/src/sqlite3.am
+    path: ../../sqlite3-sputnik/src/sqlite3.s
   - name: orm
-    path: ../src/orm.am
+    path: ../src/orm.s
   - name: orm.pool
-    path: ../src/orm/pool.am
+    path: ../src/orm/pool.s
   - name: orm.sqlite3.adapter
-    path: ../src/orm/sqlite3/adapter.am
+    path: ../src/orm/sqlite3/adapter.s
   - name: orm.sqlite3.pool
-    path: ../src/orm/sqlite3/pool.am
+    path: ../src/orm/sqlite3/pool.s
   - name: orm.sqlite3
-    path: ../src/orm/sqlite3.am
+    path: ../src/orm/sqlite3.s
   - name: orm.pool_selftest
-    path: pool_selftest.am
+    path: pool_selftest.s
 
 native_extensions:
   - name: sqlite3
     language: c
     sources:
-      - ../../sqlite3-amber/native/sqlite3_ext.c
-      - ../../sqlite3-amber/native/sqlite3.c
+      - ../../sqlite3-sputnik/native/sqlite3_ext.c
+      - ../../sqlite3-sputnik/native/sqlite3.c
     headers:
-      - ../../sqlite3-amber/native/sqlite3.h
+      - ../../sqlite3-sputnik/native/sqlite3.h
     blocking_symbols:
       - amsq_pool_acquire_wait
     defines:
