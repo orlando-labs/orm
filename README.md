@@ -13,7 +13,7 @@ This first implementation provides the runtime layers from the design:
 - structured validation errors;
 - `Result`-returning `save`, `find`, `get`, and `delete`;
 - tableless models;
-- SQLite execution through `sqlite3-sputnik`;
+- SQLite execution through `sqlite3`;
 - a thin pool facade with one-time model binding and scoped checkout;
 - model-level transactions with rollback on an `Err` block result;
 - execution instrumentation and an opt-in live query logger;
@@ -241,7 +241,7 @@ opaque resources merely to take a snapshot.
 
 ORM failure objects are ordinary Sputnik classes under `Exception`, allowing
 structured payloads such as `ValidationError#errors` and
-`SchemaMismatchError#diff`. SQLite faults use sqlite3-sputnik's bodyless
+`SchemaMismatchError#diff`. SQLite faults use sqlite3's bodyless
 `NativeError` hierarchy because they originate in the native error registry.
 
 ## Layout

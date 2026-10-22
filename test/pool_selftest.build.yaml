@@ -9,7 +9,7 @@ profiles:
 
 modules:
   - name: sqlite3
-    path: ../../sqlite3-sputnik/src/sqlite3.s
+    path: ../../sqlite3/src/sqlite3.s
   - name: orm
     path: ../src/orm.s
   - name: orm.pool
@@ -27,10 +27,10 @@ native_extensions:
   - name: sqlite3
     language: c
     sources:
-      - ../../sqlite3-sputnik/native/sqlite3_ext.c
-      - ../../sqlite3-sputnik/native/sqlite3.c
+      - ../../sqlite3/native/sqlite3_ext.c
+      - ../../sqlite3/native/sqlite3.c
     headers:
-      - ../../sqlite3-sputnik/native/sqlite3.h
+      - ../../sqlite3/native/sqlite3.h
     defines:
       - SQLITE_THREADSAFE=1
       - SQLITE_ENABLE_COLUMN_METADATA=1

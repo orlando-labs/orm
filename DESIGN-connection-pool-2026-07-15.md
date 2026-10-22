@@ -1,18 +1,18 @@
-# DESIGN: тонкий connection-pool слой для `sputnik-orm`
+# DESIGN: тонкий connection-pool слой для `orm`
 
 Date: 2026-07-15
 
 Status: ORM substrate implemented; Orbit integration remains a design proposal
 
-Target: `sputnik-orm` и optional ORM integration будущего Orbit framework
+Target: `orm` и optional ORM integration будущего Orbit framework
 
 Related:
 
-- [`sputnik-orm` public API design](../sputnik-lang/DESIGN-package-sputnik-orm-api-2026-07-09.md);
+- [`orm` public API design](../sputnik-lang/DESIGN-package-orm-api-2026-07-09.md);
 - [Orbit web framework design](../sputnik-lang/DESIGN-web-framework-2026-07-13.md);
-- [`sqlite3-sputnik`](../sqlite3-sputnik/README.md) и его реализованный `sqlite3.Pool`.
+- [`sqlite3`](../sqlite3/README.md) и его реализованный `sqlite3.Pool`.
 
-Этот документ расширяет P0-дизайн `sputnik-orm`, где connection pools были
+Этот документ расширяет P0-дизайн `orm`, где connection pools были
 оставлены за пределами scope. Он учитывает два сознательно разных execution
 профиля Orbit:
 
@@ -147,7 +147,7 @@ wrapper.
 
 ## 1. Главный design anchor: model API остаётся model API
 
-Канонический persistence surface уже выбран в `sputnik-orm`:
+Канонический persistence surface уже выбран в `orm`:
 
 ```sputnik
 Person.find(id)
@@ -188,7 +188,7 @@ business/controller code
 
 ## 2. Фактическая низкоуровневая основа
 
-На дату этого документа `sqlite3-sputnik` уже сообщает:
+На дату этого документа `sqlite3` уже сообщает:
 
 ```sputnik
 {
@@ -214,7 +214,7 @@ business/controller code
 - rollback/statement cleanup при release;
 - `stats`, `prune!`, `disconnect!`, `drain!` и instrumentation.
 
-Поэтому `sputnik-orm` не реализует собственные queue, semaphore, mutex, idle
+Поэтому `orm` не реализует собственные queue, semaphore, mutex, idle
 timer, task local или lease generation. Он только связывает уже существующий
 `sqlite3.Pool` с Model executor и предоставляет понятные lifecycle methods.
 
@@ -307,7 +307,7 @@ bare-web profile: он не создаёт request scope, а две послед
 3. Автоматически держать один lease вокруг controller dispatch.
 4. Сохранить явность bare function handlers через route middleware, annotation
    или explicit request service.
-5. Не дублировать pooling algorithms из `sqlite3-sputnik`.
+5. Не дублировать pooling algorithms из `sqlite3`.
 6. Сохранить существующий `Result` persistence contract.
 7. Дать model-level transaction API без обращения controller к pool.
 8. Обеспечить bounded checkout, cancellation cleanup и graceful shutdown.
@@ -367,7 +367,7 @@ src/orm/sqlite3/pool.s      thin wrapper over sqlite3.Pool
 test/pool_selftest.s        ORM/controller-scope contract
 ```
 
-Новый native code в `sputnik-orm` не появляется.
+Новый native code в `orm` не появляется.
 
 ### 5.2. Constructor
 
@@ -775,7 +775,7 @@ ORM persistence возвращает `Result`, поэтому model/pool transac
 Implementation может использовать private rollback sentinel поверх уже
 проверенного low-level transaction cleanup. Raw
 `connection.transaction` сохраняет commit-on-normal-return semantics
-`sqlite3-sputnik`.
+`sqlite3`.
 
 Если block проигнорировал ранний `Err` и вернул `Ok`, ORM не может угадать
 намерение пользователя.
@@ -949,7 +949,7 @@ User.bind!(sqlite_adapter(request_connection))
 ### 15.6. ORM реализует второй pool
 
 Отклонено: дублирует уже проверенные waiting, affinity, cancellation, cleanup и
-maintenance semantics `sqlite3-sputnik`.
+maintenance semantics `sqlite3`.
 
 ### 15.7. Automatic transaction на controller action
 
@@ -967,7 +967,7 @@ Result values, а не обязательно exceptions.
 
 В `DESIGN-web-framework-2026-07-13.md` нужно изменить:
 
-1. **Grounded substrate:** `sqlite3-sputnik` уже имеет `pool: true`, lease
+1. **Grounded substrate:** `sqlite3` уже имеет `pool: true`, lease
    affinity и non-inheritable task-local connection context.
 2. **Request-scoped state:** connection lease остаётся request-scoped, но
    controller action не обязан получать repository/session object.
@@ -1071,7 +1071,7 @@ Result values, а не обязательно exceptions.
 6. Explicit route middleware может сделать bare route pool-scoped.
 7. `before` annotation может сделать scope intrinsic policy bare function.
 8. Bound model вне scope использует operation-local checkout.
-9. Pooling полностью принадлежит `sqlite3-sputnik`.
+9. Pooling полностью принадлежит `sqlite3`.
 10. Public ambient current connection отсутствует.
 11. Internal non-inheritable task-local lease routing допустим и
     инкапсулирован.
