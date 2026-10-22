@@ -1,0 +1,9 @@
+{
+  "name": "orm",
+  "version": "0.1.0",
+  "root": "orm",
+  "sources": [
+    "src/orm.s",
+    "src/orm/pool.s"
+  ]
+}

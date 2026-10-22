@@ -1,0 +1,13 @@
+{
+  "name": "orm-sqlite3",
+  "version": "0.1.0",
+  "root": "orm.sqlite3",
+  "sources": [
+    "src/orm/sqlite3.s",
+    "src/orm/sqlite3/*.s"
+  ],
+  "dependencies": {
+    "orm": "0.1.0",
+    "sqlite3": "0.1.0"
+  }
+}

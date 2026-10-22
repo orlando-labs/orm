@@ -126,6 +126,7 @@ class QueryLogger:
     @rendered_lines = 0
     @refresh_task = null
     @refreshing = false
+    @refresh_generation = 0
     if @color == :auto:
       @color = @to.xterm?
     elif @color == :always:
@@ -144,8 +145,10 @@ class QueryLogger:
       self._render_locked!
       unless @refreshing:
         @refreshing = true
+        @refresh_generation += 1
+        generation = @refresh_generation
         @refresh_task = task.spawn:
-          self._refresh_loop
+          self._refresh_loop(generation)
     event
 
   def finished(event):
@@ -164,17 +167,17 @@ class QueryLogger:
           self._clear_locked!
         @entries = []
         @refreshing = false
-        if @refresh_task:
-          @refresh_task.cancel
-          @refresh_task = null
+        # Let the observer finish on its next bounded refresh. Cancellation
+        # must not escape into a query that owns this task scope.
+        @refresh_task = null
     event
 
-  def _refresh_loop():
+  def _refresh_loop(generation):
     try:
       while true:
         task.sleep(@refresh)
         keep_running = @mutex.synchronize:
-          if @refreshing:
+          if @refreshing and @refresh_generation == generation:
             self._render_locked!
             true
           else:

@@ -1,4 +1,4 @@
-# sputnik-orm
+# orm
 
 Source-only P0 ORM/modeling package for Sputnik.
 
@@ -154,11 +154,11 @@ made without an outer scope still work through operation-local checkout, which
 is useful for scripts; a web request scope is what guarantees one connection
 across several related ORM operations.
 
-The future Ember controller integration owns that request wrapper, so a
+The future Orbit controller integration owns that request wrapper, so a
 controller action remains pool-unaware:
 
 ```sputnik
-class People < ember.Controller:
+class People < orbit.Controller:
   def show(id as Int):
     Person.find(id)
 ```
@@ -168,9 +168,9 @@ infrastructure at the route/declaration boundary. Both proposed forms preserve
 the handler signature:
 
 ```sputnik
-db_request = ember_orm.connection(database)
+db_request = orbit_orm.connection(database)
 
-routes = ember.routes:
+routes = orbit.routes:
   post "/people", to: &create, before: [db_request]
 
 # Equivalent intrinsic policy for a reusable bare handler:

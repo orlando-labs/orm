@@ -2,19 +2,19 @@
 
 Date: 2026-07-15
 
-Status: ORM substrate implemented; Ember integration remains a design proposal
+Status: ORM substrate implemented; Orbit integration remains a design proposal
 
-Target: `sputnik-orm` и optional ORM integration будущего Ember framework
+Target: `sputnik-orm` и optional ORM integration будущего Orbit framework
 
 Related:
 
 - [`sputnik-orm` public API design](../sputnik-lang/DESIGN-package-sputnik-orm-api-2026-07-09.md);
-- [Ember web framework design](../sputnik-lang/DESIGN-web-framework-2026-07-13.md);
+- [Orbit web framework design](../sputnik-lang/DESIGN-web-framework-2026-07-13.md);
 - [`sqlite3-sputnik`](../sqlite3-sputnik/README.md) и его реализованный `sqlite3.Pool`.
 
 Этот документ расширяет P0-дизайн `sputnik-orm`, где connection pools были
 оставлены за пределами scope. Он учитывает два сознательно разных execution
-профиля Ember:
+профиля Orbit:
 
 1. controller target `&People#show` имеет generated controller lifecycle;
 2. bare target `&show` является обычной функцией и не получает неявный scope.
@@ -52,16 +52,16 @@ database = sqlite_pool("data/app.db",
 database.bind!(Person, EntityPath).or_raise
 ```
 
-Optional Ember integration устанавливается один раз в application
-configuration. Точный constructor hook принадлежит Ember; предлагаемый shape:
+Optional Orbit integration устанавливается один раз в application
+configuration. Точный constructor hook принадлежит Orbit; предлагаемый shape:
 
 ```sputnik
-import ember
-import ember.integrations.orm as ember_orm
+import orbit
+import orbit.integrations.orm as orbit_orm
 
-app = ember.App(
+app = orbit.App(
   routes: routes,
-  integrations: [ember_orm.pool(database)])
+  integrations: [orbit_orm.pool(database)])
 ```
 
 Интеграция автоматически оборачивает controller targets в scoped checkout,
@@ -71,10 +71,10 @@ graceful shutdown. Она не оборачивает bare functions скрыт�
 ### 0.2. Controller target: action ничего не знает о pool
 
 ```sputnik
-routes = ember.routes:
+routes = orbit.routes:
   get "/people/:id", to: &People#show, params: {id: Int}
 
-class People < ember.Controller:
+class People < orbit.Controller:
   def show(id as Int):
     match Person.find(id):
       when Ok(person):
@@ -105,17 +105,17 @@ def show(request, id as Int):
   database.with_connection:
     match Person.find(id):
       when Ok(person):
-        ember.render json: person.attributes
+        orbit.render json: person.attributes
       when Err(error):
-        ember.render text: "not found", status: :not_found
+        orbit.render text: "not found", status: :not_found
 ```
 
 Либо connection scope явно ставится на route:
 
 ```sputnik
-db_request = ember_orm.connection(database)
+db_request = orbit_orm.connection(database)
 
-routes = ember.routes:
+routes = orbit.routes:
   get "/people/:id",
     to: &show,
     params: {id: Int},
@@ -130,9 +130,9 @@ routes = ember.routes:
 annotation переносит policy к declaration без boilerplate в body:
 
 ```sputnik
-from ember.middleware import before
+from orbit.middleware import before
 
-db_request = ember_orm.connection(database)
+db_request = orbit_orm.connection(database)
 
 before db_request
 def create(request):
@@ -218,7 +218,7 @@ business/controller code
 timer, task local или lease generation. Он только связывает уже существующий
 `sqlite3.Pool` с Model executor и предоставляет понятные lifecycle methods.
 
-Документ Ember от 2026-07-13 всё ещё утверждает `pool: false`; это устаревшая
+Документ Orbit от 2026-07-13 всё ещё утверждает `pool: false`; это устаревшая
 часть исходного substrate, которую нужно обновить.
 
 ---
@@ -311,7 +311,7 @@ bare-web profile: он не создаёт request scope, а две послед
 6. Сохранить существующий `Result` persistence contract.
 7. Дать model-level transaction API без обращения controller к pool.
 8. Обеспечить bounded checkout, cancellation cleanup и graceful shutdown.
-9. Оставить core Ember ORM-neutral; integration остаётся optional package
+9. Оставить core Orbit ORM-neutral; integration остаётся optional package
    layer.
 
 ### 4.2. Не-цели
@@ -527,19 +527,19 @@ person.save # при необходимости получает новый leas
 
 ## 8. Controller integration
 
-### 8.1. Optional Ember integration object
+### 8.1. Optional Orbit integration object
 
 Предлагаемый application surface:
 
 ```sputnik
-integration = ember_orm.pool(database)
+integration = orbit_orm.pool(database)
 
-app = ember.App(
+app = orbit.App(
   routes: routes,
   integrations: [integration])
 ```
 
-`integrations:` — proposed Ember composition hook. Если Ember выберет другой
+`integrations:` — proposed Orbit composition hook. Если Orbit выберет другой
 spelling, семантический контракт остаётся тем же: integration получает seam
 вокруг generated controller target, request services и app shutdown.
 
@@ -578,7 +578,7 @@ response server layer.
 ### 8.3. Controller example
 
 ```sputnik
-class People < ember.Controller:
+class People < orbit.Controller:
   def update(id as Int):
     person = Person.find(id).or_raise
     person[:name] = param(:name)
@@ -625,8 +625,8 @@ def create(request):
 ```
 
 Handler явно знает, что ему нужен infrastructure scope. Это соответствует
-function-handler profile Ember: request передаётся аргументом, response
-создаётся через pure `ember.render`, state не возникает из hidden current
+function-handler profile Orbit: request передаётся аргументом, response
+создаётся через pure `orbit.render`, state не возникает из hidden current
 exchange.
 
 ### 9.2. Explicit route middleware
@@ -635,9 +635,9 @@ exchange.
 table:
 
 ```sputnik
-db_request = ember_orm.connection(database)
+db_request = orbit_orm.connection(database)
 
-routes = ember.routes:
+routes = orbit.routes:
   post "/people", to: &create, before: [db_request]
 ```
 
@@ -654,9 +654,9 @@ def create(request):
 Function-intrinsic connection requirement можно выразить рядом с declaration:
 
 ```sputnik
-from ember.middleware import before
+from orbit.middleware import before
 
-db_request = ember_orm.connection(database)
+db_request = orbit_orm.connection(database)
 
 before db_request
 def create(request):
@@ -681,7 +681,7 @@ def create(request):
     Person.create(name: next_request.query(:name))
 ```
 
-Точная generated `Next` форма должна совпадать с middleware ABI Ember. Macro
+Точная generated `Next` форма должна совпадать с middleware ABI Orbit. Macro
 обязан сохранить public name, signature, typed/effect annotations, callable
 reference `&create` и source mapping. Runtime middleware expression связывается
 обычным binder после expansion; macro не ищет pool и не исполняет
@@ -723,7 +723,7 @@ def create(request):
 ```sputnik
 def show(request, id as Int):
   Person.find(id).map |person|:
-    ember.render json: person.attributes
+    orbit.render json: person.attributes
 ```
 
 Он делает operation-local checkout благодаря явному startup bind. Для одного
@@ -802,7 +802,7 @@ transaction boundary и не является distributed transaction.
 Важный sizing edge:
 
 ```sputnik
-class Reports < ember.Controller:
+class Reports < orbit.Controller:
   def show():
     child = task.spawn:
       Person.find(42)
@@ -844,7 +844,7 @@ diagnostics.
 - bind к другому live Pool возвращает `Err(ModelBindingError)`;
 - native message не попадает напрямую в HTTP response.
 
-Core Ember не импортирует эти ошибки. Optional `ember.integrations.orm` делает
+Core Orbit не импортирует эти ошибки. Optional `orbit.integrations.orm` делает
 mapping.
 
 ---
@@ -885,7 +885,7 @@ Wrapper не выбирает автоматически:
 после action и response/view materialization, до передачи готового response
 низкоуровневому server.
 
-Если Ember позже добавит streaming, integration должна явно выбрать:
+Если Orbit позже добавит streaming, integration должна явно выбрать:
 
 - materialize DB data до выхода из scope; либо
 - удерживать lease до завершения stream с отдельным timeout/backpressure
@@ -963,7 +963,7 @@ Result values, а не обязательно exceptions.
 
 ---
 
-## 16. Согласование с Ember design
+## 16. Согласование с Orbit design
 
 В `DESIGN-web-framework-2026-07-13.md` нужно изменить:
 
@@ -1011,9 +1011,9 @@ Result values, а не обязательно exceptions.
 - `find_by(**attributes)` отложен как необязательный ActiveRecord-shaped sugar
   над `get(where:)`; pool/transaction contract от него не зависит.
 
-### Phase 3 — Ember integration
+### Phase 3 — Orbit integration
 
-- определить optional `ember.integrations.orm` package;
+- определить optional `orbit.integrations.orm` package;
 - добавить composition seam вокруг controller target wrappers;
 - не менять action signatures;
 - добавить pool как explicit request service;
@@ -1054,7 +1054,7 @@ Result values, а не обязательно exceptions.
 9. Model-level `transaction` включает другие models того же Pool.
 10. `Err` из ORM transaction вызывает rollback.
 11. ORM не содержит собственного pooling algorithm/task local.
-12. Core Ember остаётся ORM-neutral.
+12. Core Orbit остаётся ORM-neutral.
 13. Legacy `Model.bind!(adapter(db))` и direct adapters не ломаются.
 14. Timeout, cancellation, instrumentation и shutdown покрыты tests.
 
