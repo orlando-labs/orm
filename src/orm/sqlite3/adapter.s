@@ -1,4 +1,4 @@
-package orm.sqlite3.adapter
+package orm.sqlite3._adapter
 
 import orm
 import sqlite3
@@ -39,6 +39,45 @@ class SqliteAdapter:
         result
     rescue _RollbackResult |rollback|:
       rollback.result
+    rescue Sqlite3.PoolTimeoutError |error|:
+      raise ConnectionPoolTimeoutError(error.message, source: error)
+    rescue Sqlite3.PoolClosedError |error|:
+      raise ConnectionPoolClosedError(error.message, source: error)
+    rescue Sqlite3.PoolLeaseError |error|:
+      raise ConnectionPoolLeaseError(error.message, source: error)
+    rescue Sqlite3.Error |error|:
+      raise orm.TransactionError(error.message, source: error)
+
+  def rollback():
+    try:
+      @db.rollback()
+    rescue Sqlite3.TransactionError |error|:
+      raise orm.TransactionError(error.message, source: error)
+
+  # SQLite has no SELECT FOR UPDATE. Reserve the writer before the first read,
+  # including queries which find no row, and retain it through commit/rollback.
+  def with_lock(model = null, &blk):
+    raise ArgumentError("with_lock requires a block") unless blk
+    entered = false
+    try:
+      transaction(mode: :immediate):
+        entered = true
+        blk()
+    rescue orm.TransactionError |error|:
+      raise error if entered
+      raise orm.LockingError(error.message, source: error.source)
+
+  def find_with_lock(model, id, &blk):
+    raise ArgumentError("find_with_lock requires a block") unless blk
+    with_lock(model):
+      found = find(model, id)
+      if found.err? then found else blk(found.value)
+
+  def first_with_lock(model, where: null, &blk):
+    raise ArgumentError("first_with_lock requires a block") unless blk
+    with_lock(model):
+      found = first(model, where: where)
+      if found.err? then found else blk(found.value)
 
   def bind(model):
     return Ok(model) if model.config.tableless?

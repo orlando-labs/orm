@@ -1,8 +1,8 @@
 package orm.sqlite3
 
 import sqlite3
-from orm.sqlite3.adapter import adapter as adapter_impl
-from orm.sqlite3.pool import wrap as wrap_pool
+from orm.sqlite3._adapter import adapter as adapter_impl
+from orm.sqlite3._pool import wrap as wrap_pool
 
 export adapter, pool, memory_pool
 

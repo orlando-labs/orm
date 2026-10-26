@@ -14,9 +14,9 @@ modules:
     path: ../src/orm.s
   - name: orm.pool
     path: ../src/orm/pool.s
-  - name: orm.sqlite3.adapter
+  - name: orm.sqlite3._adapter
     path: ../src/orm/sqlite3/adapter.s
-  - name: orm.sqlite3.pool
+  - name: orm.sqlite3._pool
     path: ../src/orm/sqlite3/pool.s
   - name: orm.sqlite3
     path: ../src/orm/sqlite3.s

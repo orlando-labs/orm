@@ -1,4 +1,4 @@
-package orm.sqlite3.pool
+package orm.sqlite3._pool
 
 import orm
 import sqlite3
@@ -6,7 +6,7 @@ from orm.pool import ConnectionPoolClosedError
 from orm.pool import ConnectionPoolLeaseError
 from orm.pool import ConnectionPoolTimeoutError
 from orm.pool import ModelBindingError
-from orm.sqlite3.adapter import SqliteAdapter
+from orm.sqlite3._adapter import SqliteAdapter
 from sync import Atomic
 
 export OrmSqlitePool, wrap
@@ -58,6 +58,14 @@ class OrmSqlitePool:
   def instrument_queries!(instrumenter):
     @native_pool.instrument_queries!(instrumenter)
     self
+
+  def rollback():
+    @adapter.rollback()
+
+  def with_lock(&blk):
+    raise ArgumentError("with_lock requires a block") unless blk
+    _translate_pool_error:
+      @adapter.with_lock(&blk)
 
   def query_instrumenter():
     @native_pool.query_instrumenter

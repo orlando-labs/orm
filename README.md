@@ -16,6 +16,7 @@ This first implementation provides the runtime layers from the design:
 - SQLite execution through `sqlite3`;
 - a thin pool facade with one-time model binding and scoped checkout;
 - model-level transactions with rollback on an `Err` block result;
+- explicit rollback-only requests and block-scoped pessimistic locking;
 - execution instrumentation and an opt-in live query logger;
 - model/tableless macros for class-local declarations.
 
@@ -192,6 +193,47 @@ result = Person.transaction(mode: :immediate):
   Err(orm.PersistenceError("abort"))
 ```
 
+`Person.rollback` marks the innermost transaction/savepoint for rollback and
+returns normally. Exit explicitly when needed:
+
+```sputnik
+Person.transaction:
+  Person.create(name: "Ada").or_raise
+  Person.rollback then break :declined if invalid?
+```
+
+Normal completion, `break`, and non-local `return` commit. Exceptions and task
+cancellation roll back. A normally returned `Err` also rolls back; use explicit
+`rollback` before a control-flow exit when an abort is intended. Nested
+transactions use independent savepoints on the same logical-task connection.
+
+Locking keeps the read and all updates inside one database boundary:
+
+```sputnik
+Session.where({token: token}).find_with_lock |session|:
+  session[:payload] = updated_payload
+  session.save.or_raise
+
+# Also protects a check which may find no row.
+Session.with_lock:
+  found = Session.where({token: token}).first
+  Session.create(token: token, payload: payload) if found.err?
+```
+
+`Person.find_with_lock(id)` and `record.with_lock` also require blocks. A locked
+query returns `Err(NotFoundError)` without invoking the block when no row
+matches. `record.with_lock` reloads clean persisted records and rejects unsaved
+records or local changes. Successful calls return the block result.
+
+SQLite reserves the writer with `BEGIN IMMEDIATE` **before** reading. This is a
+database-wide writer reservation, including across independent pools/processes.
+Existing immediate/exclusive transactions reuse it through savepoints;
+deferred/manual transactions cannot be silently upgraded and raise
+`orm.LockingError`. Lock scopes do not automatically retry callbacks.
+
+The adapter contract, error behavior, rollback limits and session-store usage
+are described in [atomicity.md](docs/atomicity.md).
+
 `with_connection` timeout/closed/lease failures use the DB-neutral errors from
 `orm.pool`: `ConnectionPoolTimeoutError`, `ConnectionPoolClosedError`, and
 `ConnectionPoolLeaseError`. Rebinding an already configured model to another
@@ -269,4 +311,9 @@ From this repo:
 
 ../sputnik-lang/build/sputnik build test/pool_selftest.build.yaml --target native --out-dir out-pool --cache-dir cache-pool
 ./out-pool/orm.pool_selftest
+
+# All modules and SQLite native sources come from local sibling directories.
+../sputnik-lang/build/sputnik run test/atomicity_selftest.build.yaml --grant ffi --grant fs.read --grant fs.write --grant fs.metadata --grant random.secure
+../sputnik-lang/build/sputnik build test/atomicity_selftest.build.yaml --target native --require-full-native --out-dir build/atomicity --cache-dir build/atomicity-cache --grant ffi --grant fs.read --grant fs.write --grant fs.metadata --grant random.secure
+./build/atomicity/orm.atomicity_selftest
 ```

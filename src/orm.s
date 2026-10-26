@@ -28,6 +28,7 @@ export TablelessExecutor
 export Schema, SchemaDiff
 export OrmError, SchemaError, SchemaMismatchError, UnknownAttributeError
 export ValidationError, PersistenceError, NotFoundError
+export TransactionError, LockingError
 
 class OrmError < Exception:
   attr message
@@ -58,6 +59,13 @@ class ValidationError < OrmError:
 class PersistenceError < OrmError
 
 class NotFoundError < PersistenceError
+
+class TransactionError < PersistenceError:
+  attr source
+
+  def init(@message, @source: null)
+
+class LockingError < TransactionError
 
 class ExecutionEvent:
   attr id
@@ -393,6 +401,20 @@ class ModelType:
     return executor if executor.err?
     executor.value.transaction(mode: mode):
       blk()
+  def rollback():
+    executor = _require_executor(@config)
+    return executor if executor.err?
+    executor.value.rollback()
+  def with_lock(&blk):
+    raise ArgumentError("with_lock requires a block") unless blk
+    executor = _require_executor(@config)
+    return executor if executor.err?
+    executor.value.with_lock(self, &blk)
+  def find_with_lock(id, &blk):
+    raise ArgumentError("find_with_lock requires a block") unless blk
+    executor = _require_executor(@config)
+    return executor if executor.err?
+    executor.value.find_with_lock(self, id, &blk)
   def all():
     Query(self).all
   def where(predicate = null, &blk):
@@ -484,6 +506,18 @@ mixin ModelInstance:
     executor = _require_executor(@model.config)
     return executor if executor.err?
     executor.value.delete(self)
+
+  def with_lock(&blk):
+    raise ArgumentError("with_lock requires a block") unless blk
+    return Err(LockingError("with_lock requires a persisted record")) unless persisted?
+    return Err(LockingError("save or discard local changes before with_lock")) if changed?
+    pk = config.primary_key
+    return Err(LockingError("with_lock requires a primary key")) unless pk
+    @model.find_with_lock(self[pk.name]) |fresh|:
+      @attributes = fresh.attributes
+      @original = @attributes.copy
+      @errors = ValidationErrors()
+      blk(self)
 
   def _ensure_known!(name):
     _attribute!(name)
@@ -585,6 +619,11 @@ class Query:
     executor = _require_executor(@model.config)
     return executor if executor.err?
     executor.value.first(@model, where: @predicate)
+  def find_with_lock(&blk):
+    raise ArgumentError("find_with_lock requires a block") unless blk
+    executor = _require_executor(@model.config)
+    return executor if executor.err?
+    executor.value.first_with_lock(@model, where: @predicate, &blk)
 
 class ValidationIssue:
   attr attribute
@@ -643,6 +682,16 @@ class ValidationSpec:
 class TablelessExecutor:
   def init(persisted: true):
     @persisted = persisted
+  def transaction(mode as Symbol: :deferred, &blk):
+    raise TransactionError("tableless models do not support transactions")
+  def rollback():
+    raise TransactionError("tableless models do not support transactions")
+  def with_lock(model = null, &blk):
+    raise LockingError("tableless models do not support locking")
+  def find_with_lock(model, id, &blk):
+    raise LockingError("tableless models do not support locking")
+  def first_with_lock(model, where: null, &blk):
+    raise LockingError("tableless models do not support locking")
   def bind(model):
     Ok(model)
   def save(record):
@@ -898,6 +947,15 @@ macro def _model_members(subject as Ast, descriptor as Ast) -> Ast:
     class_method def transaction(mode as Symbol: :deferred, &blk):
       orm_model.transaction(mode: mode):
         blk()
+
+    class_method def rollback():
+      orm_model.rollback()
+
+    class_method def with_lock(&blk):
+      orm_model.with_lock(&blk)
+
+    class_method def find_with_lock(id, &blk):
+      orm_model.find_with_lock(id, &blk)
 
     class_method def all():
       orm_model.all

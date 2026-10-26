@@ -347,8 +347,8 @@ bindings из facade. Поэтому стабильный facade экспорт�
 типы и DB-neutral errors остаются в собственных модулях:
 
 ```sputnik
-from orm.sqlite3.adapter import SqliteAdapter
-from orm.sqlite3.pool import OrmSqlitePool
+from orm.sqlite3._adapter import SqliteAdapter
+from orm.sqlite3._pool import OrmSqlitePool
 from orm.pool import ConnectionPoolTimeoutError, ModelBindingError
 ```
 
